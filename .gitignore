@@ -1,0 +1,48 @@
+# Environment variables
+backend/.env
+backend/signbridge.db
+backend/signbridge.db-shm
+backend/signbridge.db-wal
+
+# Python
+backend/__pycache__/
+backend/*.py[cod]
+backend/$py.class
+backend/venv/
+backend/env/
+backend.egg-info/
+dist/
+build/
+
+# Flutter/Dart
+client/.dart_tool/
+client/.flutter-plugins
+client/.flutter-plugins-dependencies
+client/.packages
+client/.pub-cache/
+client/.pub/
+client/build/
+client/.metadata
+client/signbridge/.metadata
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+nul
+
+# Docker
+*.dockerignore

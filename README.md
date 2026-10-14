@@ -51,6 +51,7 @@ Cross-platform data collection system for USL (Ugandan Sign Language) video coll
 - Python 3.11+
 - PostgreSQL 15+
 - Docker (optional, for containerized deployment)
+- **For Windows builds**: Visual Studio 2022 with "Desktop development with C++" workload
 
 ### Backend Setup
 
@@ -126,6 +127,23 @@ the deployed HTTPS API URL.
 ```bash
 flutter run -d chrome
 ```
+
+5. Run on Windows:
+```bash
+flutter run -d windows
+```
+
+**Windows Build Requirements:**
+- Visual Studio 2022 with "Desktop development with C++" workload
+- Windows 10 SDK (installed with Visual Studio)
+- Run `flutter doctor -v` to verify Visual Studio installation
+- If Visual Studio is incomplete, open Visual Studio Installer and click "Modify" to complete the installation
+
+**Windows Camera Support:**
+- Windows camera capture is implemented using the `camera_windows` plugin
+- Recordings are saved to `Documents/recordings` folder
+- Note: The Windows camera plugin does not currently support live frame streaming for real-time video analysis
+- For production use, Android or Web platforms are recommended for full feature support
 
 ## Collection Protocol
 

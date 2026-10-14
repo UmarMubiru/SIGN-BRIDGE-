@@ -227,9 +227,32 @@ class CameraService {
         return _currentVideoPath!;
       } else {
         // Mobile/Desktop: Return file path
-        _currentVideoPath = file.path;
+        if (Platform.isWindows) {
+          // camera_windows records to a temporary path by default. Keep a
+          // durable copy under the app's Documents folder for local-first use.
+          final destinationPath = _currentVideoPath;
+          if (destinationPath == null) {
+            throw StateError('Recording destination was not prepared');
+          }
+
+          final source = File(file.path);
+          if (!await source.exists()) {
+            throw FileSystemException(
+              'Camera plugin did not create the recorded video',
+              file.path,
+            );
+          }
+
+          if (p.normalize(source.path) != p.normalize(destinationPath)) {
+            await source.copy(destinationPath);
+            await source.delete();
+          }
+          _currentVideoPath = destinationPath;
+        } else {
+          _currentVideoPath = file.path;
+        }
         _status = CameraStatus.ready;
-        return file.path;
+        return _currentVideoPath!;
       }
     } catch (e) {
       _status = CameraStatus.error;
