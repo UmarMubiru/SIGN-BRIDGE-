@@ -1,0 +1,610 @@
+SIGNBRIDGE DATA COLLECTION TOOL
+Master Full-Implementation Plan
+Different Hands  •  Same Voice
+Locked item
+Decision
+Project status
+SignBridge is a new project; the completed previous USL ML project is reference/lessons learned only.
+Purpose
+Offline-first collection, review, validation, synchronization and export of USL video data.
+Prototype scope
+10 signs × 10 target repetitions = 100 samples.
+Venue default
+Makerere University / MUDSA.
+Protocol
+v1; stored on every collection session.
+Mobile
+Flutter + SQLite/local files.
+Backend
+FastAPI + PostgreSQL + REST.
+Video
+Local while offline; server/object storage after sync.
+Brand
+Use supplied SignBridge logo and dark navy/gold/teal visual identity.
+Implementation rule
+Every phase contains Flutter + backend + database/storage + tests; no phase closes until its gate passes.
+1. Architecture
+Flutter Data Collector ├─ UI / state ├─ SQLite ├─ local video files └─ sync queue          │ HTTPS          ▼       FastAPI ├─ Auth/RBAC ├─ Signers/Consent ├─ Sign Registry ├─ Sessions ├─ Recordings/Conditions ├─ Video/Storage ├─ Review/Validation ├─ Coverage ├─ Dataset/Export └─ Audit/Health          │          ▼     PostgreSQL          │          └── Metadata/provenanceVideo: device-local → synchronized server/object storageFuture:dataset → MediaPipe → ML training/evaluation → SignBridge runtime
+2. Technology Stack
+Layer
+Implementation
+Flutter
+Flutter/Dart; feature-based architecture.
+State
+Riverpod recommended for predictable state and testability.
+Local DB
+SQLite; Drift recommended for typed schema/migrations.
+Camera
+Flutter camera capability; physical-device testing required.
+Secure storage
+flutter_secure_storage.
+API client
+Dio/http behind a repository/API abstraction.
+Backend
+Python/FastAPI.
+Validation
+Pydantic.
+ORM
+SQLAlchemy 2.x.
+Migrations
+Alembic.
+Database
+PostgreSQL.
+Auth
+JWT access + refresh tokens; RBAC.
+Tests
+Pytest + Flutter unit/widget/integration tests.
+Deployment
+Docker Compose; later production Docker/Nginx if required.
+Docs
+FastAPI OpenAPI/Swagger + project README.
+3. Brand and UI System
+Token
+Value
+Use
+Primary background
+#12141C
+App background / dark surfaces
+Secondary surface
+#1B1E2A
+Cards, forms, bottom sheets
+Gold
+#E8A93B
+Primary action and warm logo accent
+Teal
+#2FA0A0
+Secondary action, progress, cool logo accent
+Ivory
+#F3F1EA
+Primary text on dark background
+Supporting cyan
+Logo-derived cyan/teal tone
+Small highlights only; do not introduce a separate brand palette
+Use the supplied logo as the master asset on splash/onboarding and the compact brand mark in the shell.
+Use the hand emblem from the supplied logo as the collector's compact identity/sign icon where appropriate; do not introduce an unrelated visual identity.
+Primary CTA may use a restrained gold→teal gradient matching the supplied logo.
+Use large touch targets, rounded cards, clear status chips, minimal typing and strong contrast.
+Camera screen is intentionally distraction-free: signer preview and capture guidance dominate.
+4. Required UI Screens
+Screen
+Purpose
+Modern design
+Splash/Brand
+Product identity.
+Logo, dark background, gold/teal accent.
+Dashboard
+Field command center.
+Progress, sync state, current session, Record CTA.
+Signer Registration
+Register participant.
+Identity → consent → ready stepper.
+Sign Library
+Browse approved signs.
+Search, target progress, coverage chips.
+Collection Session
+Group a field visit.
+Signer, venue, protocol, device context.
+Recording Setup
+Define conditions.
+Visual capture-preset/orientation selector.
+Camera
+Record video.
+Guides, timer, readiness checks, minimal controls.
+Review
+Check technical quality.
+Video preview + checklist + retake/accept.
+Validation
+Check sign correctness.
+CORRECT / UNCLEAR / INCORRECT.
+Saved Record
+Confirm and continue.
+Summary + Record Next.
+Records
+Search history.
+Cards, filters, pagination, status chips.
+Coverage
+Find gaps.
+Sign/repetition/preset progress.
+Sessions
+Review sessions.
+Session summaries and sync status.
+Export/Backup
+Produce dataset.
+CSV/JSON/ZIP and backup state.
+Settings
+App controls.
+Storage, device, API, protocol and version.
+5. Authoritative Collection Values
+These values are locked from the supplied instrument. Do not replace them with the earlier placeholder enums.
+Repetition
+Capture preset
+1
+REP_1_FRONT_0
+2
+REP_2_LEFT_15
+3
+REP_3_RIGHT_15
+4
+REP_4_LEFT_30
+5
+REP_5_RIGHT_30
+6
+REP_6_LEFT_45
+7
+REP_7_RIGHT_45
+8
+REP_8_ABOVE_EYE_LEVEL
+9
+REP_9_BELOW_EYE_LEVEL
+10
+REP_10_FRONT_CLOSER
+Field
+Allowed values
+Lighting
+DAYLIGHT; INDOOR_ARTIFICIAL; LOW_LIGHT_DIM
+Background
+PLAIN_WALL_LIGHT; PLAIN_WALL_DARK; TEXTURED_CLUTTERED
+Site default
+Makerere University / MUDSA
+Protocol
+v1
+Target
+10 signs × 10 repetitions = 100 prototype samples
+Seed the exact ten approved sign labels from the existing instrument. Each sign starts with target_repetitions = 10. Do not invent or substitute sign labels in source code.
+6. Backend Data Model
+Table
+Core fields
+users
+id, public_id, name, email, password_hash, role, is_active, created_at, updated_at, last_login_at
+signers
+id, signer_id/participant_code, category, approved demographic fields only, consent_status, status, timestamps
+consents
+id, signer_id, consent_version, consent_status, consented_at, recorded_by, withdrawn_at, notes
+signs
+id, sign_code, gloss, display_name, category, description, instruction, active, target_repetitions, timestamps
+sign_versions
+id, sign_id, version, instruction, definition, created_at, created_by
+collection_sessions
+id, session_id, collector_id, site, protocol_version, start/end, device_id, device_model, camera_id, app_version, notes, status
+recordings
+id, recording_id, client_id, session_id, signer_id, sign_id, repetition_number, capture_preset, status, start/end, duration_ms, timestamps, deleted_at
+recording_conditions
+id, recording_id, signer_orientation, camera_position, distance_cm, lighting_condition, background, camera_height, camera_device, camera_facing, notes
+videos
+id, recording_id, file_name, storage_path, mime_type, file_size, duration_ms, width, height, fps, codec, sha256, upload_status, created_at
+recording_reviews
+id, recording_id, reviewer_id, signer_visible, hands_visible, video_clear, lighting_acceptable, background_acceptable, no_obstruction, sign_completed, quality_status, remarks, reviewed_at
+sign_validations
+id, recording_id, validator_id, correctness, optional validator confidence, remarks, validated_at
+dataset_versions
+id, version, name, description, created_by, created_at, recording_count, status
+dataset_members
+id, dataset_version_id, recording_id, inclusion_status, reason
+exports
+id, dataset_version_id, requested_by, format, status, storage_path, timestamps
+sync_events
+id, client_id, entity_type, entity_id, operation, status, attempts, error_message, timestamps
+audit_logs
+id, user_id, action, entity_type, entity_id, old_value, new_value, timestamp, device_id
+7. Core Rules
+Video binaries are not stored inside PostgreSQL; PostgreSQL stores metadata and storage references.
+Every mobile-created entity gets a UUID/client_id for idempotent synchronization.
+Signer codes, sign codes and recording IDs are unique.
+Use foreign keys for signer/sign/session/recording/video/validation relationships.
+Use soft deletion where synchronization/audit requires it.
+Do not overwrite validation history; append new validation records.
+Store SHA-256 for video integrity.
+Store app_version and protocol_version.
+Store distance as numeric centimeters; UI may display metres.
+Generate the standard filename <SignerID>_<SignLabel>_<RepNo>.mp4. Keep extra conditions in metadata.
+Quality review is separate from sign correctness validation.
+Rejected/unclear samples remain traceable; do not silently delete them.
+8. API Surface
+Endpoint
+Purpose
+POST /api/v1/auth/login
+Login
+POST /api/v1/auth/refresh
+Refresh token
+GET /api/v1/auth/me
+Current user
+GET/POST /api/v1/users
+Admin user management
+GET/POST /api/v1/signers
+Signer management
+GET/POST /api/v1/signers/{id}/consent
+Consent
+GET/POST /api/v1/signs
+Sign registry
+GET/POST /api/v1/sessions
+Collection sessions
+PATCH /api/v1/sessions/{id}
+Update/complete session
+GET/POST /api/v1/recordings
+Recording metadata
+GET/PATCH /api/v1/recordings/{id}
+Recording lifecycle
+POST /api/v1/recordings/{id}/video
+Video upload
+GET /api/v1/recordings/{id}/video
+Video access/metadata
+POST /api/v1/recordings/{id}/review
+Technical review
+POST /api/v1/recordings/{id}/validation
+Sign validation
+GET /api/v1/coverage
+Coverage
+GET /api/v1/coverage/signs/{id}
+Sign coverage
+GET /api/v1/coverage/orientations
+Preset/orientation coverage
+POST /api/v1/sync/push
+Push offline changes
+POST /api/v1/sync/pull
+Pull server changes
+POST /api/v1/exports
+Create dataset export
+GET /api/v1/exports/{id}
+Export status
+GET /api/v1/health
+Health
+9. Recording Lifecycle
+CREATED  ↓RECORDING  ↓LOCAL_ONLY / UPLOADED  ↓REVIEW_PENDING  ├─ QUALITY_FAILED → RETAKE / EXCLUDED  └─ QUALITY_PASSED          ↓VALIDATION_PENDING  ├─ CORRECT  → INCLUDED  ├─ UNCLEAR  → REVIEW_REQUIRED  └─ INCORRECT → EXCLUDED          ↓DATASET VERSION → EXPORT → FUTURE ML
+PHASE 0 — Baseline, repository and brand lock
+Goal: Freeze scope, create repositories, shared UI tokens and brand assets.
+Implementation work
+Flutter: Create project, routing, theme, assets, app shell and splash.
+Backend: FastAPI skeleton, config, DB connection, /health, logging, error format.
+DevOps: Docker Compose API+PostgreSQL, .env.example, CI skeleton.
+UI: Use supplied logo; implement dark navy/gold/teal visual system.
+Completion test gate
+Test
+Pass condition
+Evidence
+Backend
+Health/config tests
+pytest green
+Flutter
+Theme/routing/splash tests
+flutter test green
+Integration
+Flutter reaches /health
+HTTP 200
+Visual
+Logo/colors/no-overflow check
+Manual screenshot pass
+PHASE 1 — Authentication, users and shell
+Goal: Secure access and authenticated navigation.
+Implementation work
+Flutter: Login, auth guard, secure token storage, logout, navigation.
+Backend: users, password hashing, JWT access/refresh, RBAC, auth endpoints.
+Database: Migration + constraints.
+Completion test gate
+Test
+Pass condition
+Evidence
+Backend
+Valid/invalid login, expiry, role protection
+Pass
+Flutter
+Login failure/success, persistence, logout
+Pass
+Security
+No plaintext passwords/secrets
+Pass
+PHASE 2 — Signer registration and consent
+Goal: Traceable participant registration.
+Implementation work
+Flutter: Signer registration/list/detail and consent step.
+Backend: signers + consents models/endpoints and uniqueness.
+Sync: Signer/consent enter local queue.
+Completion test gate
+Test
+Pass condition
+Evidence
+Backend
+Create, duplicate rejection, consent states
+Pass
+Flutter
+Validation and consent flow
+Pass
+E2E
+Create S001 → consent → select in session
+Pass
+PHASE 3 — Sign Registry, protocol and presets
+Goal: Make the approved vocabulary and exact controlled values authoritative.
+Implementation work
+Flutter: Sign Library, search, target progress, exact ten presets.
+Backend: signs/sign_versions, protocol config, exact enums.
+Data: Seed exact ten approved signs, target=10, protocol=v1.
+Completion test gate
+Test
+Pass condition
+Evidence
+Backend
+Enums, seed count, targets
+Pass
+Flutter
+No invalid/free-text controlled values
+Pass
+E2E
+Selected preset equals stored preset
+Pass
+PHASE 4 — Collection sessions and field context
+Goal: Make a field visit a first-class entity.
+Implementation work
+Flutter: New/resume/complete session; signer; Makerere/MUDSA default; protocol; device.
+Backend: collection_sessions lifecycle and provenance.
+Sync: Session works offline and later syncs.
+Completion test gate
+Test
+Pass condition
+Evidence
+Backend
+State transitions/required fields
+Pass
+Flutter
+Create/resume/complete session
+Pass
+E2E
+Login → session → reopen → complete
+Pass
+PHASE 5 — Recording setup and conditions
+Goal: Configure each sample before capture.
+Implementation work
+Flutter: Sign, repetition, preset, lighting, background, distance, camera position.
+Backend: recordings + recording_conditions + UUID/client ID.
+UX: Visual preset/orientation guide and required-field enforcement.
+Completion test gate
+Test
+Pass condition
+Evidence
+Backend
+Valid payload persists; invalid values rejected
+Pass
+Flutter
+All controls and repetition logic
+Pass
+E2E
+Setup produces correct database record
+Pass
+PHASE 6 — Camera, local video and review
+Goal: Capture reliable video offline.
+Implementation work
+Flutter: Camera preview, guide overlay, timer, record/stop, local save, playback, retake, checklist.
+Backend: Video upload contract, storage, checksum, MIME/size validation.
+Data: Generate <SignerID>_<SignLabel>_<RepNo>.mp4.
+Completion test gate
+Test
+Pass condition
+Evidence
+Physical device
+Record/playback/retake offline
+Pass
+Backend
+Valid MP4 accepted; invalid rejected; checksum stored
+Pass
+Integrity
+Saved file opens and hash matches
+Pass
+E2E
+Setup → camera → review → save
+Pass
+PHASE 7 — Quality review and sign validation
+Goal: Separate technical quality from sign correctness.
+Implementation work
+Flutter: Quality checklist + CORRECT/UNCLEAR/INCORRECT validation.
+Backend: reviews + validations + lifecycle rules + history.
+Rules: Quality pass precedes normal validation; unclear remains review-required.
+Completion test gate
+Test
+Pass condition
+Evidence
+Backend
+Lifecycle/history tests
+Pass
+Flutter
+All validation states
+Pass
+E2E
+Good/correct included; failed quality excluded/retake
+Pass
+PHASE 8 — Dashboard, records and coverage
+Goal: Make collection progress actionable.
+Implementation work
+Flutter: Dashboard, records, filters, sessions, coverage and progress.
+Backend: Aggregates, filters, pagination, coverage service.
+UX: Show valid/pending/rejected/remaining, not only total.
+Completion test gate
+Test
+Pass condition
+Evidence
+Backend
+Coverage against 10×10 target
+Pass
+Flutter
+UI matches fixture counts
+Pass
+E2E
+Known fixture → exact dashboard/coverage
+Pass
+PHASE 9 — Offline-first synchronization
+Goal: Collect without internet and sync safely later.
+Implementation work
+Flutter: SQLite, local-first repository, local videos, queue, retry, sync indicator.
+Backend: Push/pull, idempotency, acknowledgements, conflict rules, soft delete.
+UX: Offline state, pending count, retry.
+Completion test gate
+Test
+Pass condition
+Evidence
+Offline
+Airplane-mode collection survives app restart
+Pass
+Sync
+Reconnect produces no duplicates
+Pass
+Failure
+Interrupted upload retries safely
+Pass
+Conflict
+Same client ID is idempotent
+Pass
+PHASE 10 — Dataset versions, export, backup and audit
+Goal: Produce reproducible research-ready datasets.
+Implementation work
+Flutter: Export/backup UI and status.
+Backend: dataset_versions, dataset_members, exports, audit logs.
+Export: Videos + CSV + JSON + validations + manifest/README.
+Completion test gate
+Test
+Pass condition
+Evidence
+Export
+Only included samples exported
+Pass
+Integrity
+CSV/JSON/file/checksum agreement
+Pass
+Audit
+Important actions logged
+Pass
+PHASE 11 — Security, performance and production hardening
+Goal: Prepare for controlled real-world collection.
+Implementation work
+Flutter: Secure storage, storage warnings, crash-safe writes, retries.
+Backend: Secure uploads, rate limits, indexes, logs, health, backup.
+Ops: Production environment separation and restore test.
+Completion test gate
+Test
+Pass condition
+Evidence
+Security
+Unauthorized/role/file attack tests
+Pass
+Performance
+Representative upload + paginated records
+Pass
+Recovery
+Restore DB+videos and verify hashes
+Pass
+PHASE 12 — Pilot field run and final acceptance
+Goal: Prove the complete system with representative collection.
+Implementation work
+Flutter: Complete physical-device workflow.
+Backend: API+DB+storage+export running together.
+Field: Use approved ten-sign/ten-repetition protocol at actual venue.
+Data: Audit provenance and inclusion.
+Completion test gate
+Test
+Pass condition
+Evidence
+Pilot
+Complete session through export
+Pass
+Data audit
+100% included samples fully traceable
+Pass
+Media audit
+100% included videos open + hash verified
+Pass
+UI audit
+No blocker defects
+Pass
+PHASE 13 — Release, documentation and handover
+Goal: Freeze reproducible v1.
+Implementation work
+Flutter: Release build, version, collector guide.
+Backend: Docker deployment, migrations, API docs.
+Data: Data dictionary, protocol, export and backup guides.
+QA: Final regression and acceptance checklist.
+Completion test gate
+Test
+Pass condition
+Evidence
+Clean install
+Build/migrate/login/collect/sync/export from scratch
+Pass
+Docs
+Fresh developer can reproduce system
+Pass
+Regression
+All automated tests green
+Pass
+10. Offline Sync Contract
+1. Write metadata to SQLite first.2. Save video locally.3. Add a sync_queue item.4. UI immediately shows LOCAL_ONLY/PENDING_SYNC.5. When online, push metadata.6. Upload video.7. Server validates file and checksum.8. Server acknowledges the client_id.9. Local state becomes SYNCED.10. Failed work remains queued with retry/error state.11. Retries reuse the same idempotency key.12. A retry must never create a duplicate recording.
+11. Dataset Export Structure
+SignBridge_Dataset_vX.Y/├── videos/│   ├── S001_HELLO_01.mp4│   └── ...├── metadata/│   ├── recordings.csv│   ├── recordings.json│   ├── signers.csv│   ├── signs.csv│   └── validations.csv├── manifest.json└── README.txt
+The manifest should record dataset version, creation time, recording count, sign/signer counts, protocol version and validation/inclusion policy.
+12. Repository Structure
+signbridge/├── mobile/│   ├── lib/│   │   ├── app/│   │   ├── core/│   │   └── features/│   │       ├── auth/│   │       ├── dashboard/│   │       ├── signers/│   │       ├── signs/│   │       ├── sessions/│   │       ├── recording/│   │       ├── review/│   │       ├── validation/│   │       ├── records/│   │       ├── coverage/│   │       ├── export/│   │       └── settings/│   ├── assets/branding/│   │   ├── signbridge_logo.png│   │   └── signbridge_mark.png│   └── test/├── backend/│   ├── app/│   │   ├── core/│   │   ├── models/│   │   ├── schemas/│   │   ├── repositories/│   │   ├── services/│   │   └── api/v1/│   ├── migrations/│   ├── tests/│   └── storage/├── docs/│   ├── collection_protocol_v1.md│   ├── data_dictionary.md│   ├── api.md│   ├── deployment.md│   ├── backup_restore.md│   └── test_plan.md├── docker-compose.yml├── .env.example└── README.md
+13. Test Pyramid and Evidence
+Layer
+Required evidence
+Backend unit
+Business rules, lifecycle, coverage, permissions, dataset inclusion.
+Backend API
+Auth, CRUD, upload, review, validation, sync, export.
+Database
+Migrations, foreign keys, uniqueness and constraints.
+Flutter unit
+Validators, state, filenames, sync queue.
+Flutter widget
+All major screens and form/status states.
+Flutter integration
+Complete collection workflow.
+Physical device
+Camera, video storage, offline/restart/sync.
+Security
+Unauthorized access, role escalation, malicious upload/path, size/type limits.
+Performance
+Pagination and representative video upload.
+Recovery
+Database + video restore with checksum verification.
+Visual QA
+Logo, colors, typography, touch targets, overflow and readability.
+14. Definition of Done
+A collector can log in and start a session.
+A signer can be registered and consent recorded.
+The exact approved 10 signs are available with target=10.
+The exact ten repetition-keyed capture presets are enforced.
+Lighting and background use the exact approved values.
+Venue defaults to Makerere University / MUDSA.
+Protocol v1 is stored on every session.
+A complete recording can be created and saved offline.
+Video and metadata remain linked by recording ID.
+Technical quality and sign correctness are separate.
+Incorrect/unclear records remain traceable.
+Dashboard and coverage reflect actual data.
+Offline synchronization is idempotent and retry-safe.
+Video checksums verify integrity.
+Dataset export contains videos, metadata, validations and manifest.
+Dataset versions identify included recordings.
+Audit logs record important actions.
+Database and video backups restore successfully.
+All automated tests and physical-device acceptance tests pass.
+The final app uses the supplied SignBridge logo and locked brand palette.
+A fresh developer can reproduce the system from the repository and documentation.
+15. Implementation Discipline
+FOR EACH PHASE:1. Freeze acceptance criteria.2. Update DB model/migration.3. Implement API/schema/service.4. Write backend tests immediately.5. Implement Flutter models/repository.6. Implement the UI.7. Connect UI to real local/API data.8. Write Flutter widget/integration tests.9. Run the phase end-to-end workflow.10. Run all previous regression tests.11. Capture evidence.12. Fix all blockers.13. Tag phase completion, e.g. phase-05-complete.NO "frontend first" and "backend later" split.Every phase is a working vertical slice.
+SIGNBRIDGE  •  Different Hands • Same Voice

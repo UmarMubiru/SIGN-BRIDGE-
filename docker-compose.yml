@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: signbridge-postgres
+    environment:
+      POSTGRES_USER: signbridge
+      POSTGRES_PASSWORD: signbridge
+      POSTGRES_DB: signbridge
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U signbridge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: signbridge-migrate
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://signbridge:signbridge@postgres:5432/signbridge
+      APP_ENV: development
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: signbridge-backend
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://signbridge:signbridge@postgres:5432/signbridge
+      APP_ENV: development
+    ports:
+      - "8000:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./backend:/app
+      - ./storage:/app/storage
+
+volumes:
+  postgres_data:

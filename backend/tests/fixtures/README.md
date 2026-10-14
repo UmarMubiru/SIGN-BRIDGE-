@@ -1,0 +1,1 @@
+`mediapipe-portrait.jpg` is MediaPipe's `portrait.jpg` face-landmarker test image, downloaded from `https://storage.googleapis.com/mediapipe-assets/portrait.jpg`. It is used only to test real face landmark and pose extraction. MediaPipe is Apache 2.0 licensed: https://github.com/google-ai-edge/mediapipe/blob/master/LICENSE.
