@@ -56,7 +56,14 @@ The script prompts for the password without echoing it and refuses to create a s
 
 ## Cost and operating limits
 
-The free tiers can suit a small pilot but do not guarantee a zero bill. Watch Cloud Run network egress and compute, Neon storage/compute/network usage, and R2 storage/operations. Add a Google Cloud budget alert before deployment. Avoid Render's free PostgreSQL for the live dataset because its free database expires after 30 days and its free web service sleeps when idle.
+Reviewed 2026-10-15; provider limits and pricing can change. Ordinary collection is local-first and incurs no hosting use. The hosted account/web path is pay-as-you-go and may incur charges if its quotas are exceeded:
+
+- Cloudflare Pages allows a maximum 25 MiB per individual static asset; keep large Windows installers and Android packages out of Pages assets. Pages static assets are free/unlimited to serve; Pages Functions consume Workers quota. See [Pages limits](https://developers.cloudflare.com/pages/platform/limits/) and [Pages Functions pricing](https://developers.cloudflare.com/pages/functions/pricing/).
+- Cloudflare R2 Standard currently includes 10 GB-month storage, 1 million Class A requests, 10 million Class B requests, and no egress charge; excess storage/operations are billed. See [R2 pricing](https://developers.cloudflare.com/r2/pricing/).
+- Neon Free currently lists 100 CU-hours and 1 GB database storage per project, with other product quotas separately. See [Neon pricing](https://neon.com/pricing).
+- Cloud Run is pay-per-use with an always-free usage allowance; network egress, Artifact Registry, and other Google Cloud resources can still add costs. See [Cloud Run pricing](https://cloud.google.com/run/pricing).
+
+Use Pages for the web app and small documentation only. Prefer a release host with suitable artifact limits (for example, a versioned GitHub Release) for large installers; confirm that host's current limits before publishing. Keep video storage and account processing separate. Add usage alerts and check current provider terms before deployment. These figures are reference limits, not a cost guarantee.
 
 ## Deployment order
 

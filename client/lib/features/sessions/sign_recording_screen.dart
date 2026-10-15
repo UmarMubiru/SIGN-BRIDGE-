@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/navigation_back_button.dart';
 import '../../app/widgets/app_card.dart';
 import '../../app/widgets/app_button.dart';
 import '../../core/api_client.dart';
@@ -224,6 +225,7 @@ class _SignRecordingScreenState extends ConsumerState<SignRecordingScreen> {
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
       appBar: AppBar(
+        leading: const NavigationBackButton(),
         title: const Text('Sign Recording', overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),

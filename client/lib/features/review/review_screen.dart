@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:math';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/navigation_back_button.dart';
 import '../../app/widgets/app_card.dart';
 import '../../app/widgets/app_button.dart';
 import '../../core/api_client.dart';
@@ -14,6 +15,10 @@ import '../../core/constants/recording_protocol.dart';
 import '../../core/recording/recorded_video.dart';
 import '../../core/web/web_browser.dart' as browser;
 import '../../core/video/video_bytes.dart';
+import '../../core/video/local_video_player.dart';
+import '../../core/workspace/local_recording_service.dart';
+import '../../core/workspace/local_workspace.dart';
+import '../../core/workspace/workspace_service.dart';
 
 class ReviewScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic>? data;
@@ -28,10 +33,15 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
   final _apiClient = ApiClient();
   final TextEditingController _notesController = TextEditingController();
   bool _isSaving = false;
+  bool _isSavingLocally = false;
   String? _saveError;
+  String? _localSaveError;
   String? _createdRecordingId;
+  String? _localSessionType = 'conversation';
+  SavedLocalRecording? _localSavedRecording;
 
   RecordedVideo? _recordedVideo;
+  LocalWorkspace? _recordingWorkspace;
   String? _videoUrl;
 
   @override
@@ -58,6 +68,10 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
 
     setState(() {
       _recordedVideo = data['recordedVideo'] as RecordedVideo?;
+      _recordingWorkspace = data['workspace'] as LocalWorkspace?;
+      if (_recordedVideo?.context.captureFormat != 'continuous_event') {
+        _localSessionType = null;
+      }
     });
 
     final contextPrompt = _recordedVideo?.context.contextPrompt.trim() ?? '';
@@ -80,7 +94,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
 
         setState(() {});
       } catch (e) {
-        print('Failed to create video URL: $e');
+        debugPrint('Failed to create video URL: $e');
       }
     }
   }
@@ -105,7 +119,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         );
       }
 
-      print('Saving recording with context: $recordingContext');
+      debugPrint('Saving recording with context: $recordingContext');
 
       // Generate unique IDs with random suffix to avoid duplicates
       final randomSuffix = Random().nextInt(999999).toString().padLeft(6, '0');
@@ -138,7 +152,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         'remarks': _notesController.text.isEmpty ? null : _notesController.text,
       };
 
-      print('Recording data: $recordingData');
+      debugPrint('Recording data: $recordingData');
 
       if (_createdRecordingId == null) {
         final createdRecording = await _apiClient.createRecording(
@@ -188,7 +202,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         context.go(destination.toString());
       }
     } catch (e) {
-      print('Error saving recording: $e');
+      debugPrint('Error saving recording: $e');
       if (mounted) {
         final message =
             'Could not save the recording video: ${describeApiError(e)}';
@@ -204,6 +218,53 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _approveAndSaveLocally() async {
+    final recording = _recordedVideo;
+    final workspace =
+        _recordingWorkspace ?? ref.read(activeWorkspaceProvider).valueOrNull;
+    if (recording == null || workspace == null || _localSessionType == null) {
+      setState(() {
+        _localSaveError = workspace == null
+            ? 'Select a workspace before saving locally.'
+            : 'Choose whether this event is a conversation, narrative, or other recording.';
+      });
+      return;
+    }
+    setState(() {
+      _isSavingLocally = true;
+      _localSaveError = null;
+    });
+    try {
+      final saved = await LocalRecordingService().approveAndSave(
+        workspace: workspace,
+        recording: recording,
+        sessionType: _localSessionType!,
+        consentStatus: 'not_recorded',
+        notes: _notesController.text,
+      );
+      if (!mounted) return;
+      notifyRecordingsChanged();
+      setState(() => _localSavedRecording = saved);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            saved.duplicate
+                ? 'This video is already saved in the selected workspace.'
+                : 'Recording approved and saved to the selected workspace.',
+          ),
+          backgroundColor: AppTheme.success,
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        final message = error.toString().replaceFirst('Exception: ', '');
+        setState(() => _localSaveError = 'Could not save locally: $message');
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingLocally = false);
     }
   }
 
@@ -228,9 +289,14 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final selectedWorkspace =
+        _recordingWorkspace ?? ref.watch(activeWorkspaceProvider).valueOrNull;
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
-      appBar: AppBar(title: const Text('Review Recording')),
+      appBar: AppBar(
+        leading: const NavigationBackButton(),
+        title: const Text('Review Recording'),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
@@ -310,9 +376,10 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                 maxLines: 3,
                 maxLength: 5000,
                 decoration: InputDecoration(
-                  hintText:
-                      'The approved context is prefilled; add any relevant notes...',
-                  hintStyle: TextStyle(color: AppTheme.ivory.withOpacity(0.5)),
+                  hintText: 'The approved context is prefilled; add any relevant notes...',
+                  hintStyle: TextStyle(
+                    color: AppTheme.ivory.withValues(alpha: 0.5),
+                  ),
                   filled: true,
                   fillColor: AppTheme.secondarySurface,
                   border: OutlineInputBorder(
@@ -367,21 +434,143 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                 const SizedBox(height: 16),
               ],
 
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'SAVE TO WORKSPACE (OFFLINE)',
+                      style: TextStyle(
+                        color: AppTheme.teal,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      selectedWorkspace == null
+                          ? 'No workspace is selected. Select or create one to save this recording locally.'
+                          : 'Video and metadata will be saved to “${selectedWorkspace.name}”. No cloud upload will occur.',
+                      style: const TextStyle(color: AppTheme.ivory),
+                    ),
+                    const SizedBox(height: 10),
+                    if (selectedWorkspace == null)
+                      OutlinedButton(
+                        onPressed: (_isSaving || _isSavingLocally)
+                            ? null
+                            : () => context.push('/workspace'),
+                        child: const Text('Select workspace'),
+                      )
+                    else ...[
+                      DropdownButtonFormField<String>(
+                        initialValue: _localSessionType,
+                        decoration: const InputDecoration(
+                          labelText: 'Recording event type (required)',
+                          helperText:
+                              'Choose an event type to enable local approval.',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'conversation',
+                            child: Text('Continuous conversation'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'narrative',
+                            child: Text('Narrative or monologue'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'other',
+                            child: Text('Other continuous event'),
+                          ),
+                        ],
+                        onChanged: (_isSaving || _isSavingLocally)
+                            ? null
+                            : (value) => setState(() {
+                                _localSessionType = value;
+                                _localSaveError = null;
+                              }),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Participants and consent details were not provided for this recording; consent is stored as “not recorded”.',
+                        style: TextStyle(
+                          color: AppTheme.ivory.withValues(alpha: 0.75),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (_localSaveError != null) ...[
+                        Text(
+                          _localSaveError!,
+                          style: const TextStyle(color: AppTheme.error),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      if (_localSavedRecording != null) ...[
+                        Text(
+                          'Saved video: ${_localSavedRecording!.relativeVideoPath}',
+                          style: const TextStyle(color: AppTheme.success),
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton.icon(
+                          onPressed: () => context.push(
+                            '/workspace/recordings',
+                            extra: {'workspace': selectedWorkspace},
+                          ),
+                          icon: const Icon(Icons.video_library_outlined),
+                          label: const Text('Open workspace library'),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      AppButton(
+                        text: _localSavedRecording == null
+                            ? 'APPROVE & SAVE LOCALLY'
+                            : 'SAVED TO WORKSPACE',
+                        onPressed:
+                            (_isSaving ||
+                                _isSavingLocally ||
+                                _localSessionType == null ||
+                                _localSavedRecording != null)
+                            ? null
+                            : _approveAndSaveLocally,
+                        isLoading: _isSavingLocally,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (_localSaveError != null && selectedWorkspace == null) ...[
+                Text(
+                  _localSaveError!,
+                  style: const TextStyle(color: AppTheme.error),
+                ),
+                const SizedBox(height: 12),
+              ],
+
               // Action Buttons
               Row(
                 children: [
                   Expanded(
                     child: AppButton(
                       text: 'RETAKE',
-                      onPressed: _isSaving ? null : _retakeRecording,
+                      onPressed: (_isSaving || _isSavingLocally)
+                          ? null
+                          : _retakeRecording,
                       isSecondary: true,
                     ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
                     child: AppButton(
-                      text: 'APPROVE & SAVE',
-                      onPressed: _isSaving ? null : _approveRecording,
+                      text: _recordedVideo?.context.signId.isNotEmpty == true
+                          ? 'APPROVE & UPLOAD'
+                          : 'CLOUD UPLOAD NEEDS A SIGN SESSION',
+                      onPressed:
+                          (_isSaving ||
+                              _isSavingLocally ||
+                              _recordedVideo?.context.signId.isNotEmpty != true)
+                          ? null
+                          : _approveRecording,
                       isLoading: _isSaving,
                     ),
                   ),
@@ -425,7 +614,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
   String _formatDuration(Duration duration) {
     final minutes = duration.inMinutes;
     final seconds = duration.inSeconds % 60;
-    return '${minutes}:${seconds.toString().padLeft(2, '0')}';
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
   }
 
   String _formatDurationDisplay(Duration? duration) {
@@ -438,29 +627,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
       // Web: Use HTML5 video element via platform view
       return HtmlElementView(viewType: 'video-player-$_videoUrl');
     } else if (!kIsWeb && _recordedVideo?.video.localPath != null) {
-      // Mobile: Would use video_player package
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.play_circle_outline,
-              size: 64,
-              color: AppTheme.ivory,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Video playback',
-              style: TextStyle(color: AppTheme.ivory),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Duration: ${_formatDurationDisplay(_recordedVideo?.duration)}',
-              style: const TextStyle(color: AppTheme.mutedText),
-            ),
-          ],
-        ),
-      );
+      return LocalVideoPlayer(filePath: _recordedVideo!.video.localPath!);
     } else {
       return const Center(child: CircularProgressIndicator());
     }

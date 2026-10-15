@@ -3,10 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/navigation_back_button.dart';
 import '../../app/widgets/app_card.dart';
 import '../../app/widgets/app_button.dart';
 import '../../core/constants/recording_protocol.dart';
 import '../../core/recording/recording_context.dart';
+import '../../core/workspace/local_workspace.dart';
+import '../../core/workspace/workspace_service.dart';
 
 class RecordingSetupScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic>? data;
@@ -19,7 +22,8 @@ class RecordingSetupScreen extends ConsumerStatefulWidget {
 }
 
 class _RecordingSetupScreenState extends ConsumerState<RecordingSetupScreen> {
-  final TextEditingController _contextPromptController = TextEditingController();
+  final TextEditingController _contextPromptController =
+      TextEditingController();
   String _sessionId = '';
   String _signId = '';
   String _captureFormat = CAPTURE_FORMATS.first.id;
@@ -58,8 +62,7 @@ class _RecordingSetupScreenState extends ConsumerState<RecordingSetupScreen> {
       _captureFormat =
           captureFormatById(data['captureFormat']?.toString())?.id ??
           CAPTURE_FORMATS.first.id;
-      _contextPromptController.text =
-          data['contextPrompt']?.toString() ?? '';
+      _contextPromptController.text = data['contextPrompt']?.toString() ?? '';
       _lighting = data['lighting']?.toString() ?? '';
       _background = data['background']?.toString() ?? '';
       _signerId = data['signerId']?.toString() ?? '';
@@ -73,7 +76,7 @@ class _RecordingSetupScreenState extends ConsumerState<RecordingSetupScreen> {
     return generateRecordingFilename(signerId, signLabel, _captureFormat);
   }
 
-  void _startRecording() {
+  Future<void> _startRecording() async {
     if (_sessionId.isEmpty || _signId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -111,9 +114,20 @@ class _RecordingSetupScreenState extends ConsumerState<RecordingSetupScreen> {
       contextPrompt: _contextPromptController.text.trim(),
     );
 
+    LocalWorkspace? workspace;
+    try {
+      workspace = await ref.read(activeWorkspaceProvider.future);
+    } catch (error) {
+      debugPrint('Could not read the selected workspace: $error');
+    }
+
+    if (!mounted) return;
     context.push(
       '/recording/camera',
-      extra: {'recordingContext': recordingContext},
+      extra: {
+        'recordingContext': recordingContext,
+        'workspace': ?workspace,
+      },
     );
   }
 
@@ -124,7 +138,10 @@ class _RecordingSetupScreenState extends ConsumerState<RecordingSetupScreen> {
     if (_errorMessage.isNotEmpty) {
       return Scaffold(
         backgroundColor: AppTheme.primaryBackground,
-        appBar: AppBar(title: const Text('Recording Setup')),
+        appBar: AppBar(
+          leading: const NavigationBackButton(),
+          title: const Text('Recording Setup'),
+        ),
         body: SafeArea(
           child: Center(
             child: Column(
@@ -152,7 +169,10 @@ class _RecordingSetupScreenState extends ConsumerState<RecordingSetupScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
-      appBar: AppBar(title: const Text('Recording Setup')),
+      appBar: AppBar(
+        leading: const NavigationBackButton(),
+        title: const Text('Recording Setup'),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
@@ -317,7 +337,7 @@ class _RecordingSetupScreenState extends ConsumerState<RecordingSetupScreen> {
                         decoration: InputDecoration(
                           hintText: 'Enter the agreed phrase or context...',
                           hintStyle: TextStyle(
-                            color: AppTheme.ivory.withOpacity(0.5),
+                            color: AppTheme.ivory.withValues(alpha: 0.5),
                           ),
                           filled: true,
                           fillColor: AppTheme.secondarySurface,

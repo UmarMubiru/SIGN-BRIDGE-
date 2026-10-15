@@ -1,10 +1,19 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme/app_theme.dart';
+
+String startupRouteForPlatform(TargetPlatform platform) => switch (platform) {
+  TargetPlatform.windows ||
+  TargetPlatform.linux ||
+  TargetPlatform.macOS ||
+  TargetPlatform.android => '/workspace',
+  _ => '/login',
+};
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -19,10 +28,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    // Navigate to login after 2 seconds
+    // Desktop and Android collection start from their platform-appropriate
+    // local workspace. Cloud login remains an explicit workspace action.
     _navigationTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) {
-        context.go('/login');
+        context.go(startupRouteForPlatform(defaultTargetPlatform));
       }
     });
   }

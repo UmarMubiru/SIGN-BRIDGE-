@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../app/theme/app_theme.dart';
 
 class AppNavigation extends ConsumerWidget {
@@ -75,14 +76,19 @@ class _DesktopNavigation extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
                 _NavItem(
-                  icon: Icons.dashboard,
-                  label: 'Dashboard',
-                  route: '/dashboard',
+                  icon: Icons.folder_copy_outlined,
+                  label: 'Workspace',
+                  route: '/workspace',
                 ),
                 _NavItem(
                   icon: Icons.videocam,
-                  label: 'Recording',
-                  route: '/recording',
+                  label: 'New recording',
+                  route: '/recording/new',
+                ),
+                _NavItem(
+                  icon: Icons.dashboard,
+                  label: 'Dashboard',
+                  route: '/dashboard',
                 ),
                 _NavItem(
                   icon: Icons.people,
@@ -112,7 +118,7 @@ class _DesktopNavigation extends StatelessWidget {
                 _NavItem(
                   icon: Icons.cloud_download,
                   label: 'Export',
-                  route: '/export',
+                  route: '/datasets',
                 ),
                 const Divider(color: AppTheme.primaryBackground),
                 _NavItem(
@@ -183,51 +189,40 @@ class _MobileNavigation extends StatelessWidget {
           ),
           // Navigation items
           _NavItem(
+            icon: Icons.folder_copy_outlined,
+            label: 'Workspace',
+            route: '/workspace',
+          ),
+          _NavItem(
+            icon: Icons.videocam,
+            label: 'New recording',
+            route: '/recording/new',
+          ),
+          _NavItem(
             icon: Icons.dashboard,
             label: 'Dashboard',
             route: '/dashboard',
           ),
-          _NavItem(
-            icon: Icons.videocam,
-            label: 'Recording',
-            route: '/recording',
-          ),
-          _NavItem(
-            icon: Icons.people,
-            label: 'Signers',
-            route: '/signers',
-          ),
+          _NavItem(icon: Icons.people, label: 'Signers', route: '/signers'),
           _NavItem(
             icon: Icons.library_books,
             label: 'Sign Library',
             route: '/signs',
           ),
-          _NavItem(
-            icon: Icons.history,
-            label: 'Records',
-            route: '/records',
-          ),
+          _NavItem(icon: Icons.history, label: 'Records', route: '/records'),
           _NavItem(
             icon: Icons.assessment,
             label: 'Coverage',
             route: '/coverage',
           ),
-          _NavItem(
-            icon: Icons.folder,
-            label: 'Sessions',
-            route: '/sessions',
-          ),
+          _NavItem(icon: Icons.folder, label: 'Sessions', route: '/sessions'),
           _NavItem(
             icon: Icons.cloud_download,
             label: 'Export',
-            route: '/export',
+            route: '/datasets',
           ),
           const Divider(color: AppTheme.primaryBackground),
-          _NavItem(
-            icon: Icons.settings,
-            label: 'Settings',
-            route: '/settings',
-          ),
+          _NavItem(icon: Icons.settings, label: 'Settings', route: '/settings'),
         ],
       ),
     );
@@ -248,13 +243,10 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.toString();
-    final isActive = location.contains(route);
+    final isActive = location == route || location.startsWith('$route/');
 
     return ListTile(
-      leading: Icon(
-        icon,
-        color: isActive ? AppTheme.gold : AppTheme.ivory,
-      ),
+      leading: Icon(icon, color: isActive ? AppTheme.gold : AppTheme.ivory),
       title: Text(
         label,
         style: TextStyle(
@@ -273,7 +265,7 @@ class _NavItem extends StatelessWidget {
         router.go(route);
       },
       selected: isActive,
-      selectedTileColor: AppTheme.primaryBackground.withOpacity(0.1),
+      selectedTileColor: AppTheme.primaryBackground.withValues(alpha: 0.1),
     );
   }
 }

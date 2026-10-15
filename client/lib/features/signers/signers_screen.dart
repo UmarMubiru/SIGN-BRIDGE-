@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/theme/app_theme.dart';
 import '../../app/widgets/app_card.dart';
 import '../../app/widgets/status_chip.dart';
+import '../../app/widgets/navigation_back_button.dart';
 import '../../core/api_client.dart';
 
 class SignersScreen extends ConsumerStatefulWidget {
@@ -80,6 +81,7 @@ class _SignersScreenState extends ConsumerState<SignersScreen> {
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
       appBar: AppBar(
+        leading: const NavigationBackButton(),
         title: const Text('Signers'),
         actions: [
           IconButton(icon: const Icon(Icons.add), onPressed: _openCreateSigner),

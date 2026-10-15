@@ -8,6 +8,7 @@ import 'package:camera/camera.dart';
 import '../../core/services/camera_service.dart';
 import '../../core/api_client.dart';
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/navigation_back_button.dart';
 import '../../app/widgets/app_button.dart';
 
 class RecordingScreen extends ConsumerStatefulWidget {
@@ -169,7 +170,10 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
-      appBar: AppBar(title: const Text('Recording')),
+      appBar: AppBar(
+        leading: NavigationBackButton(enabled: !_isRecording),
+        title: const Text('Recording'),
+      ),
       body: SafeArea(
         child: _isLoading
             ? const Center(

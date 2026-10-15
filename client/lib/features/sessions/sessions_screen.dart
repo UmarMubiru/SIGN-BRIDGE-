@@ -6,6 +6,7 @@ import '../../app/theme/app_theme.dart';
 import '../../app/widgets/app_card.dart';
 import '../../app/widgets/app_button.dart';
 import '../../app/widgets/status_chip.dart';
+import '../../app/widgets/navigation_back_button.dart';
 import '../../core/api_client.dart';
 
 class SessionsScreen extends ConsumerStatefulWidget {
@@ -57,6 +58,7 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
       appBar: AppBar(
+        leading: const NavigationBackButton(),
         title: const Text('Collection Sessions'),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _loadSessions),

@@ -2,751 +2,369 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'dart:async';
-
 import '../../app/theme/app_theme.dart';
 import '../../app/widgets/app_card.dart';
 import '../../core/api_client.dart';
+import '../../core/workspace/local_recording_service.dart';
+import '../../core/workspace/local_workspace.dart';
+import '../../core/workspace/workspace_service.dart';
 
-class DashboardScreen extends ConsumerStatefulWidget {
+class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
   @override
-  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final workspace = ref.watch(activeWorkspaceProvider);
+    return Scaffold(
+      backgroundColor: AppTheme.primaryBackground,
+      appBar: AppBar(title: const Text('Collection overview')),
+      body: SafeArea(
+        child: workspace.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (error, _) => _Notice(
+            icon: Icons.error_outline,
+            message: 'Could not load the selected workspace: $error',
+          ),
+          data: (selected) => selected == null
+              ? _NoWorkspace(onChoose: () => context.go('/workspace'))
+              : _WorkspaceOverview(workspace: selected),
+        ),
+      ),
+    );
+  }
 }
 
-class _DashboardScreenState extends ConsumerState<DashboardScreen> {
-  final _apiClient = ApiClient();
-  List<Map<String, dynamic>> _sessions = [];
-  List<Map<String, dynamic>> _recordings = [];
-  List<Map<String, dynamic>> _activities = [];
-  bool _isLoadingSessions = true;
-  bool _isLoadingRecordings = true;
-  bool _isLoadingActivities = true;
-  bool _isRefreshing = false;
-  Timer? _refreshTimer;
+class _NoWorkspace extends StatelessWidget {
+  const _NoWorkspace({required this.onChoose});
+  final VoidCallback onChoose;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 620),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: AppCard(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.folder_open, color: AppTheme.gold, size: 48),
+              const SizedBox(height: 12),
+              const Text(
+                'Start with a local workspace',
+                style: TextStyle(
+                  color: AppTheme.ivory,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Create or open a workspace to collect video and metadata on this device. Cloud sign-in is optional.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.mutedText),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: onChoose,
+                icon: const Icon(Icons.folder),
+                label: const Text('MANAGE WORKSPACE'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _WorkspaceOverview extends StatefulWidget {
+  const _WorkspaceOverview({required this.workspace});
+  final LocalWorkspace workspace;
+
+  @override
+  State<_WorkspaceOverview> createState() => _WorkspaceOverviewState();
+}
+
+class _WorkspaceOverviewState extends State<_WorkspaceOverview> {
+  late Future<List<LocalWorkspaceRecording>> _recordings;
 
   @override
   void initState() {
     super.initState();
-    recordingsChanged.addListener(_onRecordingsChanged);
-    _refreshDashboard();
-    _startRealTimeUpdates();
+    recordingsChanged.addListener(_refresh);
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _WorkspaceOverview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.workspace.rootPath != widget.workspace.rootPath) _load();
   }
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
-    recordingsChanged.removeListener(_onRecordingsChanged);
+    recordingsChanged.removeListener(_refresh);
     super.dispose();
   }
 
-  void _onRecordingsChanged() {
-    _refreshDashboard();
+  void _load() {
+    _recordings = LocalRecordingService().listRecordings(widget.workspace);
   }
 
-  void _startRealTimeUpdates() {
-    // Refresh without stacking duplicate requests when the server is busy.
-    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-      _refreshDashboard();
-    });
-  }
-
-  Future<void> _refreshDashboard() async {
-    if (_isRefreshing) return;
-    _isRefreshing = true;
-    try {
-      await Future.wait([
-        _loadSessions(),
-        _loadRecordings(),
-        _loadActivities(),
-      ]);
-    } finally {
-      _isRefreshing = false;
-    }
-  }
-
-  Future<void> _loadSessions() async {
-    try {
-      final sessions = await _apiClient.listSessions();
-      if (mounted) {
-        setState(() {
-          _sessions = sessions;
-          _isLoadingSessions = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoadingSessions = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _loadRecordings() async {
-    try {
-      final recordings = await _apiClient.listRecordings();
-      if (mounted) {
-        setState(() {
-          _recordings = recordings;
-          _isLoadingRecordings = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoadingRecordings = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _loadActivities() async {
-    try {
-      final activities = await _apiClient.listRecentActivity();
-      if (mounted) {
-        setState(() {
-          _activities = activities;
-          _isLoadingActivities = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoadingActivities = false);
-      }
-    }
-  }
-
-  void _handleNewRecording() {
-    // Navigate to the new session creation screen
-    context.push('/sessions/create');
-  }
-
-  String _formatTime(dynamic timestamp) {
-    if (timestamp == null) return 'Unknown';
-
-    try {
-      final dateTime = DateTime.parse(timestamp.toString()).toLocal();
-      final now = DateTime.now();
-      final difference = now.difference(dateTime);
-
-      if (difference.isNegative || difference.inSeconds < 60) {
-        return 'Just now';
-      }
-
-      if (difference.inMinutes < 60) {
-        final minutes = difference.inMinutes;
-        return '$minutes minute${minutes == 1 ? '' : 's'} ago';
-      }
-
-      if (difference.inHours < 24) {
-        final hours = difference.inHours;
-        return '$hours hour${hours == 1 ? '' : 's'} ago';
-      }
-
-      final days = difference.inDays;
-      return '$days day${days == 1 ? '' : 's'} ago';
-    } catch (e) {
-      return 'Unknown';
-    }
+  void _refresh() {
+    if (!mounted) return;
+    setState(_load);
   }
 
   @override
-  Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isDesktop = screenWidth > 768;
-
-    return Scaffold(
-      backgroundColor: AppTheme.primaryBackground,
-      appBar: AppBar(
-        backgroundColor: AppTheme.secondarySurface,
-        elevation: 0,
-        title: Row(
-          children: [
-            // Logo
-            Image.asset(
-              'assets/images/signbridge_logo.png',
-              height: 40,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [AppTheme.gold, AppTheme.teal],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.accessibility_new,
-                    size: 24,
-                    color: AppTheme.primaryBackground,
-                  ),
-                );
-              },
-            ),
-            const SizedBox(width: 12),
-            // Welcome and dashboard title stacked
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Welcome to SignBridge',
-                    style: TextStyle(
-                      color: AppTheme.ivory,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const Text(
-                    'Data Collection Dashboard',
-                    style: TextStyle(color: AppTheme.teal, fontSize: 12),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          // Navigation buttons (show labels on desktop, icons only on mobile)
-          if (isDesktop) ...[
-            _NavButton(
-              icon: Icons.people,
-              label: 'Signers',
-              onTap: () => context.go('/signers'),
-            ),
-            _NavButton(
-              icon: Icons.library_books,
-              label: 'Signs',
-              onTap: () => context.go('/signs'),
-            ),
-            _NavButton(
-              icon: Icons.assessment,
-              label: 'Coverage',
-              onTap: () => context.go('/coverage'),
-            ),
-            _NavButton(
-              icon: Icons.folder,
-              label: 'Records',
-              onTap: () => context.go('/records'),
-            ),
-          ] else if (screenWidth > 600) ...[
-            IconButton(
-              icon: const Icon(Icons.people, color: AppTheme.ivory),
-              onPressed: () => context.go('/signers'),
-              tooltip: 'Signers',
-            ),
-            IconButton(
-              icon: const Icon(Icons.library_books, color: AppTheme.ivory),
-              onPressed: () => context.go('/signs'),
-              tooltip: 'Signs',
-            ),
-            IconButton(
-              icon: const Icon(Icons.assessment, color: AppTheme.ivory),
-              onPressed: () => context.go('/coverage'),
-              tooltip: 'Coverage',
-            ),
-          ] else ...[
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, color: AppTheme.ivory),
-              onSelected: (value) {
-                if (value == 'logout') {
-                  context.go('/login');
-                } else {
-                  context.go(value);
-                }
-              },
-              itemBuilder: (context) => const [
-                PopupMenuItem(value: '/signers', child: Text('Signers')),
-                PopupMenuItem(value: '/signs', child: Text('Signs')),
-                PopupMenuItem(value: '/coverage', child: Text('Coverage')),
-                PopupMenuItem(value: '/records', child: Text('Records')),
-                PopupMenuItem(value: 'logout', child: Text('Logout')),
-              ],
-            ),
-          ],
-          if (screenWidth > 600) const SizedBox(width: 8),
-          // Logout button (yellowish/gold)
-          if (screenWidth > 600)
-            Container(
-              margin: const EdgeInsets.only(right: 8),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [AppTheme.gold, AppTheme.gold.withValues(alpha: 0.8)],
-                ),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () {
-                    context.go('/login');
-                  },
-                  borderRadius: BorderRadius.circular(8),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.logout,
-                          color: AppTheme.primaryBackground,
-                          size: 20,
-                        ),
-                        if (isDesktop) ...[
-                          const SizedBox(width: 8),
-                          const Text(
-                            'Logout',
-                            style: TextStyle(
-                              color: AppTheme.primaryBackground,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.all(isDesktop ? 32 : 16),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1200),
-              child: SizedBox(
-                width: double.infinity,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(
+    BuildContext context,
+  ) => FutureBuilder<List<LocalWorkspaceRecording>>(
+    future: _recordings,
+    builder: (context, snapshot) {
+      final recordings = snapshot.data ?? const <LocalWorkspaceRecording>[];
+      final approved = recordings
+          .where((r) => r.reviewStatus == 'approved')
+          .length;
+      final missing = recordings.where((r) => !r.videoExists).length;
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final narrow = constraints.maxWidth < 640;
+          return ListView(
+            padding: EdgeInsets.all(narrow ? 16 : 28),
+            children: [
+              AppCard(
+                child: Row(
                   children: [
-                    // Progress Overview
-                    SizedBox(
-                      width: double.infinity,
-                      child: AppCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Collection Progress',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: AppTheme.ivory,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _ProgressCard(
-                                    label: 'Collected',
-                                    value: _recordings.length.toString(),
-                                    color: AppTheme.teal,
-                                  ),
-                                ),
-                                Expanded(
-                                  child: _ProgressCard(
-                                    label: 'Approved',
-                                    value: _recordings
-                                        .where(
-                                          (r) =>
-                                              r['validation_status'] ==
-                                              'approved',
-                                        )
-                                        .length
-                                        .toString(),
-                                    color: AppTheme.gold,
-                                  ),
-                                ),
-                                Expanded(
-                                  child: _ProgressCard(
-                                    label: 'Pending',
-                                    value: _recordings
-                                        .where(
-                                          (r) =>
-                                              r['validation_status'] ==
-                                              'pending',
-                                        )
-                                        .length
-                                        .toString(),
-                                    color: AppTheme.secondarySurface,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
+                    const Icon(
+                      Icons.folder_copy_outlined,
+                      color: AppTheme.teal,
+                      size: 28,
                     ),
-                    const SizedBox(height: 24),
-
-                    // Quick Actions
-                    const Text(
-                      'Quick Actions',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.ivory,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        // Derive the grid from the available content width so
-                        // mid-sized browser windows don't squeeze six cards into
-                        // a narrow row.
-                        final crossAxisCount = (constraints.maxWidth / 180)
-                            .floor()
-                            .clamp(2, 5)
-                            .toInt();
-                        final childAspectRatio = switch (crossAxisCount) {
-                          >= 4 => 1.25,
-                          3 => 1.15,
-                          _ => 1.0,
-                        };
-                        return GridView.count(
-                          crossAxisCount: crossAxisCount,
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          mainAxisSpacing: 12,
-                          crossAxisSpacing: 12,
-                          childAspectRatio: childAspectRatio,
-                          children: [
-                            _ActionCard(
-                              icon: Icons.videocam,
-                              label: 'New Recording',
-                              isDesktop: isDesktop,
-                              onTap: _handleNewRecording,
-                            ),
-                            _ActionCard(
-                              icon: Icons.people,
-                              label: 'Signers',
-                              isDesktop: isDesktop,
-                              onTap: () => context.go('/signers'),
-                            ),
-                            _ActionCard(
-                              icon: Icons.library_books,
-                              label: 'Sign Library',
-                              isDesktop: isDesktop,
-                              onTap: () => context.go('/signs'),
-                            ),
-                            _ActionCard(
-                              icon: Icons.assessment,
-                              label: 'Coverage',
-                              isDesktop: isDesktop,
-                              onTap: () => context.go('/coverage'),
-                            ),
-                            _ActionCard(
-                              icon: Icons.cloud_download,
-                              label: 'Datasets',
-                              isDesktop: isDesktop,
-                              onTap: () => context.go('/datasets'),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Connection Status
-                    AppCard(
-                      child: Row(
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(
-                            Icons.cloud_done,
-                            color: AppTheme.teal,
-                            size: 32,
-                          ),
-                          const SizedBox(width: 16),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Connection Status',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: AppTheme.ivory,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                Text(
-                                  'Online - Connected to server',
-                                  style: TextStyle(
-                                    color: AppTheme.teal,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
+                          Text(
+                            widget.workspace.name,
+                            style: const TextStyle(
+                              color: AppTheme.ivory,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
                             ),
+                          ),
+                          Text(
+                            widget.workspace.rootPath,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: AppTheme.mutedText),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 24),
-
-                    // Recent Activity
-                    const Text(
-                      'Recent Activity',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.ivory,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    AppCard(
-                      child: _isLoadingActivities
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(32),
-                                child: CircularProgressIndicator(
-                                  color: AppTheme.gold,
-                                ),
-                              ),
-                            )
-                          : _activities.isEmpty
-                          ? const Padding(
-                              padding: EdgeInsets.all(32),
-                              child: Text(
-                                'No recent activity',
-                                style: TextStyle(color: AppTheme.mutedText),
-                              ),
-                            )
-                          : Column(
-                              children: _activities
-                                  .take(10)
-                                  .toList()
-                                  .asMap()
-                                  .entries
-                                  .map((entry) {
-                                    final index = entry.key;
-                                    final activity = entry.value;
-                                    final eventType =
-                                        activity['event_type']?.toString() ??
-                                        '';
-                                    final icon = eventType.contains('deleted')
-                                        ? Icons.delete_outline
-                                        : eventType.contains('approved')
-                                        ? Icons.check_circle
-                                        : eventType.contains('dataset')
-                                        ? Icons.folder
-                                        : Icons.videocam;
-                                    return Column(
-                                      children: [
-                                        _ActivityItem(
-                                          key: ValueKey(activity['id']),
-                                          icon: icon,
-                                          title:
-                                              activity['message']?.toString() ??
-                                              'Activity',
-                                          subtitle:
-                                              activity['details']?.toString() ??
-                                              '',
-                                          time: _formatTime(
-                                            activity['created_at'],
-                                          ),
-                                        ),
-                                        if (index <
-                                            _activities.take(10).length - 1)
-                                          const Divider(
-                                            color: AppTheme.primaryBackground,
-                                          ),
-                                      ],
-                                    );
-                                  })
-                                  .toList(),
-                            ),
+                    TextButton(
+                      onPressed: () => context.go('/workspace'),
+                      child: const Text('Manage'),
                     ),
                   ],
                 ),
               ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  _MetricCard(
+                    label: 'Saved videos',
+                    value: snapshot.hasError ? '—' : '${recordings.length}',
+                    icon: Icons.video_library_outlined,
+                  ),
+                  _MetricCard(
+                    label: 'Approved',
+                    value: snapshot.hasError ? '—' : '$approved',
+                    icon: Icons.check_circle_outline,
+                  ),
+                  _MetricCard(
+                    label: 'Missing files',
+                    value: snapshot.hasError ? '—' : '$missing',
+                    icon: Icons.warning_amber_outlined,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Continue collecting',
+                      style: TextStyle(
+                        color: AppTheme.ivory,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Record continuously, review the clip, then approve it into this workspace.',
+                      style: TextStyle(color: AppTheme.mutedText),
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 10,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: () => context.go('/recording/new'),
+                          icon: const Icon(Icons.fiber_manual_record),
+                          label: const Text('NEW RECORDING'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => context.push(
+                            '/workspace/recordings',
+                            extra: {'workspace': widget.workspace},
+                          ),
+                          icon: const Icon(Icons.video_library_outlined),
+                          label: const Text('WORKSPACE RECORDINGS'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Recent local recordings',
+                      style: TextStyle(
+                        color: AppTheme.ivory,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    if (snapshot.connectionState != ConnectionState.done)
+                      const LinearProgressIndicator()
+                    else if (snapshot.hasError)
+                      Text(
+                        'Could not read workspace recordings: ${snapshot.error}',
+                        style: const TextStyle(color: AppTheme.error),
+                      )
+                    else if (recordings.isEmpty)
+                      const Text(
+                        'No recordings saved yet. New recordings will appear here after local approval.',
+                        style: TextStyle(color: AppTheme.mutedText),
+                      )
+                    else
+                      for (final recording in recordings.take(5))
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                            recording.videoExists
+                                ? Icons.play_circle_outline
+                                : Icons.warning_amber,
+                            color: recording.videoExists
+                                ? AppTheme.teal
+                                : AppTheme.gold,
+                          ),
+                          title: Text(
+                            recording.fileName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: AppTheme.ivory),
+                          ),
+                          subtitle: Text(
+                            '${recording.recordingType} · ${recording.reviewStatus}',
+                            style: const TextStyle(color: AppTheme.mutedText),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right,
+                            color: AppTheme.mutedText,
+                          ),
+                          onTap: () => context.push(
+                            '/workspace/recordings/${recording.id}',
+                            extra: {'workspace': widget.workspace},
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
 }
 
-class _ProgressCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-
-  const _ProgressCard({
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
     required this.label,
     required this.value,
-    required this.color,
-    super.key,
+    required this.icon,
   });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 36,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(color: AppTheme.ivory, fontSize: 14),
-        ),
-      ],
-    );
-  }
-}
-
-class _ActionCard extends StatelessWidget {
-  final IconData icon;
   final String label;
-  final bool isDesktop;
-  final VoidCallback onTap;
-
-  const _ActionCard({
-    required this.icon,
-    required this.label,
-    required this.isDesktop,
-    required this.onTap,
-    super.key,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      onTap: onTap,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: isDesktop ? 48 : 40, color: AppTheme.gold),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: TextStyle(
-                color: AppTheme.ivory,
-                fontSize: isDesktop ? 14 : 12,
-                fontWeight: FontWeight.w600,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _NavButton extends StatelessWidget {
+  final String value;
   final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _NavButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    super.key,
-  });
 
   @override
-  Widget build(BuildContext context) {
-    return TextButton.icon(
-      onPressed: onTap,
-      icon: Icon(icon, color: AppTheme.ivory, size: 20),
-      label: Text(
-        label,
-        style: const TextStyle(
-          color: AppTheme.ivory,
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      style: TextButton.styleFrom(foregroundColor: AppTheme.ivory),
-    );
-  }
-}
-
-class _ActivityItem extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final String time;
-
-  const _ActivityItem({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.time,
-    super.key,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+  Widget build(BuildContext context) => SizedBox(
+    width: 190,
+    child: AppCard(
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppTheme.gold.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: AppTheme.gold, size: 20),
-          ),
+          Icon(icon, color: AppTheme.gold),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  title,
+                  value,
                   style: const TextStyle(
                     color: AppTheme.ivory,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
                   ),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
                 ),
-                Text(
-                  subtitle,
-                  style: const TextStyle(color: AppTheme.teal, fontSize: 12),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                ),
+                Text(label, style: const TextStyle(color: AppTheme.mutedText)),
               ],
             ),
           ),
-          Text(
-            time,
-            style: const TextStyle(color: AppTheme.mutedText, fontSize: 12),
-          ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
+
+class _Notice extends StatelessWidget {
+  const _Notice({required this.icon, required this.message});
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: AppCard(
+        child: Row(
+          children: [
+            Icon(icon, color: AppTheme.gold),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(color: AppTheme.ivory),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }

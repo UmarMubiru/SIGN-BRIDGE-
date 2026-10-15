@@ -1,9 +1,36 @@
 # SignBridge Local-First Migration Plan
 
-**Status:** Repository audit complete; implementation not started.  
+**Status:** Windows local-first foundation implemented; acceptance remains partially unverified. Updated 2026-10-15.
 **Goal:** Make Windows collection work without a hosted API or cloud video storage, then add Android offline collection and dataset consolidation without losing the current cloud implementation.
 
 ## Recommendation
+
+The recommendation below and the phase checklist are the original planning snapshot. The implementation selected Flutter-native SQLite/filesystem storage for the Windows local workflow; it does not use a local FastAPI sidecar. Do not treat the older audit bullets as current state without checking the status summary below.
+
+## Current implementation status (2026-10-15)
+
+- Windows: workspace creation/opening, versioned SQLite workspace, relative video paths, continuous capture UI, review, local approval, checksum/deduplication, interrupted-save recovery, library playback, local participant/session/sign operations, consent audit, timestamped utterance annotations, speaker association, gloss/translation revisions, metadata search, and verified portable workspace folder copies are implemented.
+- Local copy/export: `WorkspaceCopyService` checkpoints SQLite, copies the workspace folder, verifies each copied file with SHA-256, and writes `copy-manifest.json`. This is a folder-copy format, not a ZIP dataset package, filtered/anonymized export, or import/consolidation tool.
+- Cloud: FastAPI JWT authentication remains backed by PostgreSQL account records. Cloud recordings/dataset-version features remain remote-only. Workspace collection does not auto-upload; failed/unsupported cloud operations are not redirected to a remote copy.
+- Android: initial app-managed workspace path, shared schema/repository and camera/microphone manifest permissions exist. Physical Android capture, picker/export, playback, offline and restart checks have not been completed; parity is not claimed.
+- Not implemented: annotation review/validation UI, filterable dataset bundles, restore/repair UI, scheduled backup reminders, import/consolidation, cloud sync, Android device validation, and guaranteed Windows camera reliability.
+- Existing protocol: continuous conversation/narrative remains the natural collection path. Existing standard/repeat/contextual sign protocol values and legacy labels remain unchanged; the continuous path does not require isolated-sign repetition or orientation sweeps.
+
+### Current manual acceptance status
+
+Automated tests cover workspace lifecycle, local repository operations, consent audit, recording save/deduplication/recovery, annotation revisions/speaker links, verified workspace copy/reopen, and navigation. Windows debug compilation has passed. A real end-to-end webcam capture → review → approval → playback → app restart → offline pass has not been performed. The Windows camera plugin has previously returned `CameraException(camera_error, Failed to start video recording)` on the target machine. No Android device test has been performed.
+
+### Reproducible manual procedure
+
+1. Disconnect the test PC from the network and launch the Windows debug build at `client/build/windows/x64/runner/Debug/signbridge.exe`.
+2. Create/select a workspace such as `D:\datasets\USL_Field_Collection`; confirm `workspace.json`, `database.sqlite3`, `videos/`, `exports/`, and `backups/` exist.
+3. Create a local participant and session, then start a natural continuous conversation or narrative. Stop and review the video, play it, select the event type and explicit consent state, and approve/save locally.
+4. Open Workspace recordings, confirm the recording and checksum appear, play it, and add an utterance with start/end milliseconds, speaker, gloss, translation, uncertainty status/note. Edit the same utterance and verify the prior annotation remains as a superseded revision.
+5. Close and reopen SignBridge while still offline. Reopen the same workspace and verify the session, recording, playback, and annotations persist.
+6. Create a verified backup and portable workspace copy to a different folder. Open the copied folder itself as a workspace and confirm playback and annotations. Keep a separate backup before doing any destructive recovery test.
+7. If the camera fails, record the exact selected device, Flutter error text, and whether another app currently holds the camera; do not count the remaining steps as passed.
+
+This is a procedure only; it does not indicate the manual checks have been performed.
 
 Proceed in phases, beginning with a Windows local-collection proof of concept. Keep the current Flutter Web/Android + FastAPI + Neon + R2 implementation intact until the local workflow passes its acceptance checks. Do not point the new local application at the existing Neon database or delete the existing R2 objects as part of this work.
 

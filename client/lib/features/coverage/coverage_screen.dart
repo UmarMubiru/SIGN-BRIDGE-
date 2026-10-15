@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../app/widgets/app_card.dart';
+import '../../app/widgets/navigation_back_button.dart';
 import '../../core/api_client.dart';
 import '../../core/constants/recording_protocol.dart';
 
@@ -62,7 +63,10 @@ class _CoverageScreenState extends ConsumerState<CoverageScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
-      appBar: AppBar(title: const Text('Coverage')),
+      appBar: AppBar(
+        leading: const NavigationBackButton(),
+        title: const Text('Coverage'),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: EdgeInsets.all(isDesktop ? 32 : 16),

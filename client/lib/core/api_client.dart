@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'web/web_browser.dart' as browser;
 import 'video/video_upload.dart';
+import 'workspace/workspace_repository.dart';
+import 'workspace/workspace_service.dart';
 
 /// Notifies mounted screens when recording metadata or video status changes.
 final ValueNotifier<int> recordingsChanged = ValueNotifier<int>(0);
@@ -81,7 +83,17 @@ class ApiClient {
       ),
     );
 
-    // Add interceptors
+    // Separate Dio for video uploads with longer timeout
+    _uploadDio = Dio(
+      BaseOptions(
+        baseUrl: baseUrl,
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(minutes: 5),
+        headers: {'Content-Type': 'application/json'},
+      ),
+    );
+
+    // Add interceptors to main Dio
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
@@ -136,10 +148,71 @@ class ApiClient {
         },
       ),
     );
+
+    // Add same interceptors to upload Dio
+    _uploadDio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final token = await _storage.read(key: 'access_token');
+          if (token != null) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          return handler.next(options);
+        },
+        onError: (error, handler) async {
+          final requestPath = error.requestOptions.path;
+          final isAuthRequest =
+              requestPath.endsWith('/auth/login') ||
+              requestPath.endsWith('/auth/register') ||
+              requestPath.endsWith('/auth/refresh');
+          if (error.response?.statusCode == 401 && !isAuthRequest) {
+            try {
+              final refreshToken = await _storage.read(key: 'refresh_token');
+              if (refreshToken != null) {
+                final response = await _uploadDio.post(
+                  '/auth/refresh',
+                  data: {'refresh_token': refreshToken},
+                );
+
+                final newAccessToken = response.data['access_token'];
+                final newRefreshToken = response.data['refresh_token'];
+
+                await _storage.write(
+                  key: 'access_token',
+                  value: newAccessToken,
+                );
+                await _storage.write(
+                  key: 'refresh_token',
+                  value: newRefreshToken,
+                );
+
+                final opts = error.requestOptions;
+                opts.headers['Authorization'] = 'Bearer $newAccessToken';
+                final retryResponse = await _uploadDio.fetch(opts);
+                return handler.resolve(retryResponse);
+              }
+            } catch (e) {
+              await _storage.delete(key: 'access_token');
+              await _storage.delete(key: 'refresh_token');
+            }
+          }
+          return handler.next(error);
+        },
+      ),
+    );
   }
 
   late final Dio _dio;
   final _storage = const FlutterSecureStorage();
+
+  // Separate Dio instance for video uploads with longer timeout
+  late final Dio _uploadDio;
+
+  Future<WorkspaceRepository?> _localRepository() async {
+    if (kIsWeb) return null;
+    final workspace = await WorkspaceService().loadActiveWorkspace();
+    return workspace == null ? null : WorkspaceRepository(workspace);
+  }
 
   static String get baseUrl {
     if (_configuredBaseUrl.isNotEmpty) {
@@ -225,6 +298,8 @@ class ApiClient {
   Future<Map<String, dynamic>> createSigner(
     Map<String, dynamic> signerData,
   ) async {
+    final local = await _localRepository();
+    if (local != null) return local.createParticipant(signerData);
     final response = await _dio.post('/signers/', data: signerData);
     return response.data;
   }
@@ -233,6 +308,8 @@ class ApiClient {
     int skip = 0,
     int limit = 100,
   }) async {
+    final local = await _localRepository();
+    if (local != null) return local.listParticipants(skip: skip, limit: limit);
     final response = await _dio.get(
       '/signers/',
       queryParameters: {'skip': skip, 'limit': limit},
@@ -248,6 +325,8 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getSigner(String signerId) async {
+    final local = await _localRepository();
+    if (local != null) return local.getParticipant(signerId);
     final response = await _dio.get('/signers/$signerId');
     return response.data;
   }
@@ -256,6 +335,8 @@ class ApiClient {
     String signerId,
     Map<String, dynamic> consentData,
   ) async {
+    final local = await _localRepository();
+    if (local != null) return local.recordConsent(signerId, consentData);
     final response = await _dio.post(
       '/signers/$signerId/consent',
       data: consentData,
@@ -268,6 +349,8 @@ class ApiClient {
     int skip = 0,
     int limit = 100,
   }) async {
+    final local = await _localRepository();
+    if (local != null) return local.listSigns(skip: skip, limit: limit);
     final response = await _dio.get(
       '/signs/',
       queryParameters: {'skip': skip, 'limit': limit},
@@ -283,16 +366,22 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getSign(String signId) async {
+    final local = await _localRepository();
+    if (local != null) return local.getSign(signId);
     final response = await _dio.get('/signs/$signId');
     return response.data;
   }
 
   Future<Map<String, dynamic>> getSignByCode(String signCode) async {
+    final local = await _localRepository();
+    if (local != null) return local.getSignByCode(signCode);
     final response = await _dio.get('/signs/code/$signCode');
     return response.data;
   }
 
   Future<Map<String, dynamic>> createSign(Map<String, dynamic> signData) async {
+    final local = await _localRepository();
+    if (local != null) return local.createSign(signData);
     final response = await _dio.post('/signs/', data: signData);
     return response.data;
   }
@@ -301,6 +390,8 @@ class ApiClient {
   Future<Map<String, dynamic>> createSession(
     Map<String, dynamic> sessionData,
   ) async {
+    final local = await _localRepository();
+    if (local != null) return local.createSession(sessionData);
     final response = await _dio.post('/sessions/', data: sessionData);
     return response.data;
   }
@@ -309,6 +400,8 @@ class ApiClient {
     int skip = 0,
     int limit = 100,
   }) async {
+    final local = await _localRepository();
+    if (local != null) return local.listSessions(skip: skip, limit: limit);
     final response = await _dio.get(
       '/sessions/',
       queryParameters: {'skip': skip, 'limit': limit},
@@ -324,6 +417,8 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getSession(String sessionId) async {
+    final local = await _localRepository();
+    if (local != null) return local.getSession(sessionId);
     final response = await _dio.get('/sessions/$sessionId');
     return response.data;
   }
@@ -332,21 +427,29 @@ class ApiClient {
     String sessionId,
     Map<String, dynamic> updateData,
   ) async {
+    final local = await _localRepository();
+    if (local != null) return local.updateSession(sessionId, updateData);
     final response = await _dio.patch('/sessions/$sessionId', data: updateData);
     return response.data;
   }
 
   Future<Map<String, dynamic>> startSession(String sessionId) async {
+    final local = await _localRepository();
+    if (local != null) return local.setSessionStatus(sessionId, 'in_progress');
     final response = await _dio.post('/sessions/$sessionId/start');
     return response.data;
   }
 
   Future<Map<String, dynamic>> completeSession(String sessionId) async {
+    final local = await _localRepository();
+    if (local != null) return local.setSessionStatus(sessionId, 'completed');
     final response = await _dio.post('/sessions/$sessionId/complete');
     return response.data;
   }
 
   Future<Map<String, dynamic>> cancelSession(String sessionId) async {
+    final local = await _localRepository();
+    if (local != null) return local.setSessionStatus(sessionId, 'cancelled');
     final response = await _dio.post('/sessions/$sessionId/cancel');
     return response.data;
   }
@@ -356,6 +459,8 @@ class ApiClient {
     int skip = 0,
     int limit = 100,
   }) async {
+    final local = await _localRepository();
+    if (local != null) return local.listRecordings(skip: skip, limit: limit);
     final response = await _dio.get(
       '/recordings/',
       queryParameters: {'skip': skip, 'limit': limit},
@@ -364,6 +469,8 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getRecording(String recordingId) async {
+    final local = await _localRepository();
+    if (local != null) return local.getRecording(recordingId);
     final response = await _dio.get('/recordings/$recordingId');
     return response.data;
   }
@@ -373,6 +480,7 @@ class ApiClient {
     int skip = 0,
     int limit = 100,
   }) async {
+    if (await _localRepository() != null) return const [];
     final response = await _dio.get(
       '/recordings/$recordingId/frames',
       queryParameters: {'skip': skip, 'limit': limit},
@@ -383,6 +491,11 @@ class ApiClient {
   Future<Map<String, dynamic>> createRecording(
     Map<String, dynamic> recordingData,
   ) async {
+    if (await _localRepository() != null) {
+      throw StateError(
+        'Approve the recording from the local review screen so the video and metadata are saved together in the workspace.',
+      );
+    }
     final response = await _dio.post('/recordings/', data: recordingData);
     notifyRecordingsChanged();
     return response.data;
@@ -392,6 +505,11 @@ class ApiClient {
     String recordingId,
     Map<String, dynamic> updateData,
   ) async {
+    if (await _localRepository() != null) {
+      throw StateError(
+        'Recording metadata changes are not available here yet.',
+      );
+    }
     final response = await _dio.patch(
       '/recordings/$recordingId',
       data: updateData,
@@ -401,6 +519,11 @@ class ApiClient {
   }
 
   Future<void> deleteRecording(String recordingId) async {
+    if (await _localRepository() != null) {
+      throw StateError(
+        'Delete local recordings from the workspace recording library.',
+      );
+    }
     await _dio.delete('/recordings/$recordingId');
     notifyRecordingsChanged();
   }
@@ -408,6 +531,7 @@ class ApiClient {
   Future<List<Map<String, dynamic>>> listRecentActivity({
     int limit = 20,
   }) async {
+    if (await _localRepository() != null) return const [];
     final response = await _dio.get(
       '/activity/',
       queryParameters: {'limit': limit},
@@ -423,8 +547,11 @@ class ApiClient {
     required String fileName,
     required String mimeType,
   }) async {
+    if (await _localRepository() != null) {
+      throw StateError('Video upload is a cloud-only action.');
+    }
     if (fileSize <= 0) throw StateError('The video file is empty.');
-    final reservation = await _dio.post(
+    final reservation = await _uploadDio.post(
       '/recordings/$recordingId/upload-url',
       data: {
         'file_name': fileName,
@@ -474,7 +601,7 @@ class ApiClient {
         );
       }
       stage = 'Finalizing the uploaded video';
-      final response = await _dio.post(
+      final response = await _uploadDio.post(
         '/recordings/$recordingId/complete-upload',
       );
       notifyRecordingsChanged();
@@ -488,7 +615,7 @@ class ApiClient {
           notifyRecordingsChanged();
           return latest;
         }
-        await _dio.post(
+        await _uploadDio.post(
           '/recordings/$recordingId/upload-failed',
           data: {
             'error': failure.substring(
@@ -525,6 +652,11 @@ class ApiClient {
   }
 
   Future<String> getRecordingVideoUrl(String recordingId) async {
+    if (await _localRepository() != null) {
+      throw StateError(
+        'Open this recording from Workspace recordings to play its local video.',
+      );
+    }
     final recording = await getRecording(recordingId);
     final fileUrl = recording['file_url']?.toString();
     if (fileUrl == null || fileUrl.isEmpty) {
@@ -548,6 +680,9 @@ class ApiClient {
   Future<Map<String, dynamic>> createDatasetVersion(
     Map<String, dynamic> datasetData,
   ) async {
+    if (await _localRepository() != null) {
+      throw StateError('Cloud dataset versions are unavailable in local mode.');
+    }
     final response = await _dio.post('/datasets/', data: datasetData);
     return response.data;
   }
@@ -556,6 +691,7 @@ class ApiClient {
     int skip = 0,
     int limit = 100,
   }) async {
+    if (await _localRepository() != null) return const [];
     final response = await _dio.get(
       '/datasets/',
       queryParameters: {'skip': skip, 'limit': limit},
@@ -564,6 +700,9 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getDatasetVersion(String datasetId) async {
+    if (await _localRepository() != null) {
+      throw StateError('Cloud datasets are unavailable in local mode.');
+    }
     final response = await _dio.get('/datasets/$datasetId');
     return response.data;
   }
@@ -571,11 +710,19 @@ class ApiClient {
   Future<Map<String, dynamic>> getDatasetByVersionNumber(
     String versionNumber,
   ) async {
+    if (await _localRepository() != null) {
+      throw StateError('Cloud datasets are unavailable in local mode.');
+    }
     final response = await _dio.get('/datasets/version/$versionNumber');
     return response.data;
   }
 
   Future<void> downloadDataset(String datasetId, {String? fileName}) async {
+    if (await _localRepository() != null) {
+      throw StateError(
+        'Cloud dataset downloads are unavailable in local mode.',
+      );
+    }
     final response = await _dio.get(
       '/datasets/$datasetId/download',
       // The server prepares the ZIP before sending response headers, then
@@ -598,6 +745,9 @@ class ApiClient {
   }
 
   Future<void> downloadAllRecordings() async {
+    if (await _localRepository() != null) {
+      throw StateError('Cloud exports are unavailable in local mode.');
+    }
     final response = await _dio.get(
       '/datasets/recordings/download-all',
       options: Options(

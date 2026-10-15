@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../theme/app_theme.dart';
+import '../widgets/navigation_back_button.dart';
+import '../workspace_shell.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/auth/login_screen.dart';
@@ -12,18 +14,25 @@ import '../../features/signers/create_signer_screen.dart';
 import '../../features/signs/signs_screen.dart';
 import '../../core/recording/recording_context.dart';
 import '../../core/recording/recorded_video.dart';
+import '../../core/workspace/local_workspace.dart';
+import '../../core/workspace/workspace_service.dart';
 import '../../features/recording/new_recording_screen.dart';
 import '../../features/sessions/sessions_screen.dart';
 import '../../features/sessions/session_details_screen.dart';
 import '../../features/sessions/create_session_screen.dart';
 import '../../features/sessions/sign_recording_screen.dart';
 import '../../features/recording/recording_setup_screen.dart';
+import '../../features/recording/local_recording_launch_screen.dart';
 import '../../features/review/review_screen.dart';
 import '../../features/records/records_screen.dart';
 import '../../features/coverage/coverage_screen.dart';
 import '../../features/datasets/datasets_screen.dart';
+import '../../features/workspace/workspace_settings_screen.dart';
+import '../../features/workspace/workspace_recordings_screen.dart';
+import '../../features/workspace/workspace_recording_viewer_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
+  Widget workspacePage(Widget child) => WorkspaceShell(child: child);
   final router = GoRouter(
     initialLocation: '/',
     routes: [
@@ -45,35 +54,41 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/dashboard',
         name: 'dashboard',
-        builder: (context, state) => const DashboardScreen(),
+        builder: (context, state) => workspacePage(const DashboardScreen()),
+      ),
+      GoRoute(
+        path: '/recording/new',
+        name: 'new_local_recording',
+        builder: (context, state) =>
+            workspacePage(const LocalRecordingLaunchScreen()),
       ),
       // Placeholder routes for all screens
       GoRoute(
         path: '/signers',
         name: 'signers',
-        builder: (context, state) => const SignersScreen(),
+        builder: (context, state) => workspacePage(const SignersScreen()),
       ),
       GoRoute(
         path: '/signers/create',
         name: 'create_signer',
-        builder: (context, state) => const CreateSignerScreen(),
+        builder: (context, state) => workspacePage(const CreateSignerScreen()),
       ),
       GoRoute(
         path: '/signs',
         name: 'signs',
-        builder: (context, state) => const SignsScreen(),
+        builder: (context, state) => workspacePage(const SignsScreen()),
       ),
       GoRoute(
         path: '/sessions',
         name: 'sessions',
-        builder: (context, state) => const SessionsScreen(),
+        builder: (context, state) => workspacePage(const SessionsScreen()),
       ),
       GoRoute(
         path: '/sessions/create',
         name: 'create_session',
         builder: (context, state) {
           final signerId = state.uri.queryParameters['signerId'];
-          return CreateSessionScreen(signerId: signerId);
+          return workspacePage(CreateSessionScreen(signerId: signerId));
         },
       ),
       GoRoute(
@@ -82,7 +97,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final sessionId = state.pathParameters['sessionId'] ?? '';
           final signId = state.uri.queryParameters['signId'];
-          return SignRecordingScreen(sessionId: sessionId, signId: signId);
+          return workspacePage(
+            SignRecordingScreen(sessionId: sessionId, signId: signId),
+          );
         },
       ),
       GoRoute(
@@ -90,7 +107,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'session_details',
         builder: (context, state) {
           final sessionId = state.pathParameters['sessionId'] ?? '';
-          return SessionDetailsScreen(sessionId: sessionId);
+          return workspacePage(SessionDetailsScreen(sessionId: sessionId));
         },
       ),
       GoRoute(
@@ -99,7 +116,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final extra = state.extra;
           final data = extra is Map ? Map<String, dynamic>.from(extra) : null;
-          return RecordingSetupScreen(data: data);
+          return workspacePage(RecordingSetupScreen(data: data));
         },
       ),
       GoRoute(
@@ -108,6 +125,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final extra = state.extra;
           final rawContext = extra is Map ? extra['recordingContext'] : null;
+          final rawWorkspace = extra is Map ? extra['workspace'] : null;
           final recordingContext = rawContext is RecordingContext
               ? rawContext
               : rawContext is Map
@@ -115,10 +133,15 @@ final routerProvider = Provider<GoRouter>((ref) {
               : null;
 
           if (recordingContext == null) {
-            return const _UnavailableRecordingRouteScreen();
+            return workspacePage(const _UnavailableRecordingRouteScreen());
           }
 
-          return NewRecordingScreen(context: recordingContext);
+          return workspacePage(
+            NewRecordingScreen(
+              context: recordingContext,
+              workspace: rawWorkspace is LocalWorkspace ? rawWorkspace : null,
+            ),
+          );
         },
       ),
       GoRoute(
@@ -127,42 +150,95 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final extra = state.extra;
           final rawVideo = extra is Map ? extra['recordedVideo'] : null;
+          final rawWorkspace = extra is Map ? extra['workspace'] : null;
           if (rawVideo is! RecordedVideo) {
-            return _UnavailableReviewRouteScreen(
-              sessionId: state.uri.queryParameters['sessionId'],
-              signId: state.uri.queryParameters['signId'],
+            return workspacePage(
+              _UnavailableReviewRouteScreen(
+                sessionId: state.uri.queryParameters['sessionId'],
+                signId: state.uri.queryParameters['signId'],
+              ),
             );
           }
 
-          return ReviewScreen(data: {'recordedVideo': rawVideo});
+          return workspacePage(
+            ReviewScreen(
+              data: {
+                'recordedVideo': rawVideo,
+                if (rawWorkspace is LocalWorkspace) 'workspace': rawWorkspace,
+              },
+            ),
+          );
         },
       ),
       GoRoute(
         path: '/validation',
         name: 'validation',
         builder: (context, state) =>
-            const _PlaceholderScreen(title: 'Validation'),
+            workspacePage(const _PlaceholderScreen(title: 'Validation')),
       ),
       GoRoute(
         path: '/records',
         name: 'records',
-        builder: (context, state) => const RecordsScreen(),
+        builder: (context, state) => workspacePage(const _RecordsRoute()),
       ),
       GoRoute(
         path: '/coverage',
         name: 'coverage',
-        builder: (context, state) => const CoverageScreen(),
+        builder: (context, state) => workspacePage(const CoverageScreen()),
       ),
       GoRoute(
         path: '/datasets',
         name: 'datasets',
-        builder: (context, state) => const DatasetsScreen(),
+        builder: (context, state) => workspacePage(const DatasetsScreen()),
+      ),
+      GoRoute(
+        path: '/workspace',
+        name: 'workspace',
+        builder: (context, state) =>
+            workspacePage(const WorkspaceSettingsScreen()),
+      ),
+      GoRoute(
+        path: '/workspace/recordings',
+        name: 'workspace_recordings',
+        builder: (context, state) {
+          final extra = state.extra;
+          final workspace = extra is Map ? extra['workspace'] : null;
+          if (workspace is! LocalWorkspace) {
+            return workspacePage(
+              const _PlaceholderScreen(
+                title: 'Select a workspace to view its recordings',
+              ),
+            );
+          }
+          return workspacePage(WorkspaceRecordingsScreen(workspace: workspace));
+        },
+      ),
+      GoRoute(
+        path: '/workspace/recordings/:recordingId',
+        name: 'workspace_recording',
+        builder: (context, state) {
+          final extra = state.extra;
+          final workspace = extra is Map ? extra['workspace'] : null;
+          if (workspace is! LocalWorkspace) {
+            return workspacePage(
+              const _PlaceholderScreen(
+                title: 'Select a workspace to open this recording',
+              ),
+            );
+          }
+          return workspacePage(
+            WorkspaceRecordingViewerScreen(
+              workspace: workspace,
+              recordingId: state.pathParameters['recordingId'] ?? '',
+            ),
+          );
+        },
       ),
       GoRoute(
         path: '/settings',
         name: 'settings',
         builder: (context, state) =>
-            const _PlaceholderScreen(title: 'Settings'),
+            workspacePage(const _PlaceholderScreen(title: 'Settings')),
       ),
     ],
   );
@@ -178,7 +254,7 @@ class _PlaceholderScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(leading: const NavigationBackButton(), title: Text(title)),
       body: Center(
         child: Text(
           '$title - Coming Soon',
@@ -186,6 +262,24 @@ class _PlaceholderScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _RecordsRoute extends ConsumerWidget {
+  const _RecordsRoute();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref
+        .watch(activeWorkspaceProvider)
+        .when(
+          loading: () =>
+              const Scaffold(body: Center(child: CircularProgressIndicator())),
+          error: (error, _) => Scaffold(body: Center(child: Text('$error'))),
+          data: (workspace) => workspace == null
+              ? const RecordsScreen()
+              : WorkspaceRecordingsScreen(workspace: workspace),
+        );
   }
 }
 
@@ -206,7 +300,10 @@ class _UnavailableReviewRouteScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
-      appBar: AppBar(title: const Text('Recording Review')),
+      appBar: AppBar(
+        leading: const NavigationBackButton(),
+        title: const Text('Recording Review'),
+      ),
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -252,7 +349,10 @@ class _UnavailableRecordingRouteScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
-      appBar: AppBar(title: const Text('Recording')),
+      appBar: AppBar(
+        leading: const NavigationBackButton(),
+        title: const Text('Recording'),
+      ),
       body: SafeArea(
         child: Center(
           child: Padding(

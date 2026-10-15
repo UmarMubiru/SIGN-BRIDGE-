@@ -4,11 +4,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 import 'dart:io';
-import 'dart:typed_data';
 
 import '../camera/camera_status.dart';
+import 'windows_recording_file_promoter.dart';
 
 class CameraService {
+  static Future<void> _releaseBarrier = Future<void>.value();
+
   CameraController? _controller;
   List<CameraDescription>? _cameras;
   List<CameraDevice> _availableDevices = [];
@@ -40,6 +42,7 @@ class CameraService {
 
   /// Detect available cameras
   Future<CameraDiagnostics> detectCameras() async {
+    await _releaseBarrier;
     _status = CameraStatus.detecting;
     _errorMessage = null;
 
@@ -86,6 +89,7 @@ class CameraService {
 
   /// Initialize a specific camera by device ID
   Future<CameraDiagnostics> initializeCamera(String deviceId) async {
+    await _releaseBarrier;
     if (_availableDevices.isEmpty) {
       _status = CameraStatus.unavailable;
       return CameraDiagnostics(
@@ -159,7 +163,10 @@ class CameraService {
   /// Start recording
   Future<String> startRecording() async {
     if (_status != CameraStatus.ready) {
-      throw Exception('Camera not ready. Status: $_status');
+      throw CameraException(
+        'camera_not_ready',
+        _errorMessage ?? 'Camera not ready. Status: $_status',
+      );
     }
 
     if (_controller == null || !_controller!.value.isInitialized) {
@@ -170,6 +177,10 @@ class CameraService {
       throw Exception('Already recording');
     }
 
+    _currentVideoPath = null;
+    _videoData = null;
+    _errorMessage = null;
+    _isRecording = false;
     try {
       _status = CameraStatus.recording;
 
@@ -199,9 +210,13 @@ class CameraService {
         return filePath;
       }
     } catch (e) {
-      _status = CameraStatus.error;
       _errorMessage = 'Failed to start recording: $e';
-      throw Exception('Failed to start recording: $e');
+      // Keep the initialized preview available for a retry. The original
+      // CameraException is useful here: Windows can initialize a preview but
+      // still reject the selected video/audio capture format at record start.
+      _status = isInitialized ? CameraStatus.ready : CameraStatus.error;
+      if (e is CameraException) rethrow;
+      throw CameraException('start_recording_failed', _errorMessage);
     }
   }
 
@@ -220,7 +235,7 @@ class CameraService {
       if (kIsWeb) {
         // Web: Store video data in memory
         _videoData = await file.readAsBytes();
-        print('Video data captured: ${_videoData?.length} bytes');
+        debugPrint('Video data captured: ${_videoData?.length} bytes');
         _currentVideoPath =
             'web_recording_${DateTime.now().millisecondsSinceEpoch}.mp4';
         _status = CameraStatus.ready;
@@ -236,16 +251,22 @@ class CameraService {
           }
 
           final source = File(file.path);
-          if (!await source.exists()) {
-            throw FileSystemException(
-              'Camera plugin did not create the recorded video',
-              file.path,
-            );
-          }
-
           if (p.normalize(source.path) != p.normalize(destinationPath)) {
-            await source.copy(destinationPath);
-            await source.delete();
+            try {
+              await const WindowsRecordingFilePromoter().promote(
+                source: source,
+                destinationPath: destinationPath,
+              );
+            } catch (_) {
+              // Preserve the plugin output and expose its path for recovery.
+              _currentVideoPath = source.path;
+              rethrow;
+            }
+          } else if (!await source.exists() || await source.length() == 0) {
+            throw FileSystemException(
+              'Camera produced an empty video',
+              source.path,
+            );
           }
           _currentVideoPath = destinationPath;
         } else {
@@ -256,15 +277,19 @@ class CameraService {
       }
     } catch (e) {
       _status = CameraStatus.error;
-      _errorMessage = 'Failed to stop recording: $e';
+      _errorMessage = _currentVideoPath == null
+          ? 'Failed to stop recording: $e'
+          : 'Failed to finalize recording: $e. The camera output remains at $_currentVideoPath.';
       _isRecording = false;
-      throw Exception('Failed to stop recording: $e');
+      throw CameraException('stop_recording_failed', _errorMessage!);
     }
   }
 
   /// Dispose camera service
   Future<void> dispose() async {
-    await _disposeController();
+    final release = _releaseBarrier.then((_) => _disposeController());
+    _releaseBarrier = release.catchError((Object _) {});
+    await release;
     _cameras = null;
     _availableDevices = [];
     _videoData = null;
@@ -273,17 +298,19 @@ class CameraService {
   }
 
   Future<void> _disposeController() async {
-    if (_controller != null) {
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
       if (_isRecording) {
         try {
-          await _controller!.stopVideoRecording();
+          await controller.stopVideoRecording();
         } catch (e) {
           debugPrint('Error stopping recording during dispose: $e');
         }
         _isRecording = false;
       }
-      await _controller!.dispose();
-      _controller = null;
+      _isRecording = false;
+      await controller.dispose();
     }
   }
 

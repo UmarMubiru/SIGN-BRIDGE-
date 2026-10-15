@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/navigation_back_button.dart';
 import '../../app/widgets/app_card.dart';
 import '../../app/widgets/app_button.dart';
 import '../../core/api_client.dart';
@@ -21,6 +22,7 @@ class CreateSessionScreen extends ConsumerStatefulWidget {
 class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   final _apiClient = ApiClient();
   final _formKey = GlobalKey<FormState>();
+  final _scrollController = ScrollController();
 
   Map<String, dynamic>? _selectedSigner;
   LightingCondition? _selectedLighting;
@@ -33,6 +35,12 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   void initState() {
     super.initState();
     _loadSigners();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadSigners() async {
@@ -130,14 +138,24 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
-      appBar: AppBar(title: const Text('New Recording Session')),
+      appBar: AppBar(
+        leading: const NavigationBackButton(),
+        title: const Text('New Recording Session'),
+      ),
       body: SafeArea(
         child: _isLoadingSigners
             ? const Center(
                 child: CircularProgressIndicator(color: AppTheme.gold),
               )
-            : SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
+            : Scrollbar(
+                controller: _scrollController,
+                thumbVisibility: true,
+                trackVisibility: true,
+                interactive: true,
+                child: SingleChildScrollView(
+                controller: _scrollController,
+                primary: false,
+                padding: const EdgeInsets.fromLTRB(16, 10, 20, 24),
                 child: Form(
                   key: _formKey,
                   child: Column(
@@ -151,7 +169,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 24),
+                        const SizedBox(height: 14),
 
                       // Signer Selection
                       AppCard(
@@ -248,6 +266,10 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
                                 },
                                 activeColor: AppTheme.gold,
                                 contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                visualDensity: VisualDensity.compact,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
                               );
                             }).toList(),
                           ],
@@ -284,6 +306,10 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
                                 },
                                 activeColor: AppTheme.gold,
                                 contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                visualDensity: VisualDensity.compact,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
                               );
                             }).toList(),
                           ],
@@ -341,7 +367,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
 
                       // Start Session Button
                       SizedBox(
@@ -354,6 +380,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
                       ),
                     ],
                   ),
+                ),
                 ),
               ),
       ),

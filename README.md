@@ -1,15 +1,16 @@
 # SignBridge Data Collection Tool
 
-Cross-platform data collection system for USL (Ugandan Sign Language) video collection, supporting Android and Web/PC platforms with shared PostgreSQL metadata and Cloudflare R2 video storage.
+SignBridge collects Ugandan Sign Language conversation and narrative data. The Windows desktop app uses a local-first workspace: SQLite stores structured metadata and original videos remain ordinary files in that workspace. Local collection does not require an account, API, or internet connection. Cloud-backed web/account operations remain optional and separate.
 
 ## Architecture
 
-### Cross-Platform Client (Flutter)
-- **Android**: Primary field client using phone/tablet camera
-- **Web**: PC client using built-in laptop camera or connected USB webcam
-- **State Management**: Riverpod
-- **Record Persistence**: FastAPI-backed PostgreSQL; authentication tokens use secure device storage
-- **Video Storage**: Cloudflare R2, with direct app uploads using short-lived signed URLs
+### Flutter client
+- **Windows desktop**: User-selected workspace folders, SQLite metadata, file-based video, local review, approval, library, annotations, backup, and portable workspace copy.
+- **Android**: Workspace flow currently uses app-managed storage and the shared metadata model. Camera, storage export, playback, and restart behavior still require Android device validation; parity is not claimed.
+- **Web**: Connected client for existing cloud workflows; it does not provide the desktop workspace file API.
+- **Cloud accounts**: Optional FastAPI authentication, with PostgreSQL account metadata and private Cloudflare R2 cloud recording flows. Local workspaces are not uploaded automatically.
+
+See [`client/README.md`](client/README.md) for desktop build and local workflow details and [`docs/LOCAL_FIRST_MIGRATION_PLAN.md`](docs/LOCAL_FIRST_MIGRATION_PLAN.md) for current scope and remaining gaps.
 
 ### Backend (FastAPI)
 - **Framework**: FastAPI with Python

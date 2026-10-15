@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/navigation_back_button.dart';
 import '../../app/widgets/app_card.dart';
 import '../../app/widgets/app_button.dart';
 import '../../app/widgets/status_chip.dart';
@@ -78,7 +79,10 @@ class _SessionDetailsScreenState extends ConsumerState<SessionDetailsScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
-      appBar: AppBar(title: Text(_session?['public_id'] ?? 'Session Details')),
+      appBar: AppBar(
+        leading: const NavigationBackButton(),
+        title: Text(_session?['public_id'] ?? 'Session Details'),
+      ),
       body: SafeArea(
         child: _isLoading
             ? const Center(

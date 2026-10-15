@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/navigation_back_button.dart';
 import '../../app/widgets/app_button.dart';
 import '../../app/widgets/app_card.dart';
 import '../../core/api_client.dart';
@@ -89,11 +90,17 @@ class _CreateSignerScreenState extends ConsumerState<CreateSignerScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
-      appBar: AppBar(title: const Text('Create Signer')),
+      appBar: AppBar(
+        leading: const NavigationBackButton(),
+        title: const Text('Create Signer'),
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: EdgeInsets.all(isDesktop ? 48 : 24),
+            padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 32 : 24,
+              vertical: isDesktop ? 16 : 24,
+            ),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 600),
               child: AppCard(

@@ -8,17 +8,20 @@ import 'package:camera/camera.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../app/widgets/app_button.dart';
+import '../../app/widgets/navigation_back_button.dart';
 import '../../core/services/camera_service.dart';
 import '../../core/camera/camera_status.dart';
 import '../../core/constants/recording_protocol.dart';
 import '../../core/recording/recording_context.dart';
 import '../../core/recording/recorded_video.dart';
 import '../../core/video/video_asset.dart';
+import '../../core/workspace/local_workspace.dart';
 
 class NewRecordingScreen extends ConsumerStatefulWidget {
   final RecordingContext context;
+  final LocalWorkspace? workspace;
 
-  const NewRecordingScreen({super.key, required this.context});
+  const NewRecordingScreen({super.key, required this.context, this.workspace});
 
   @override
   ConsumerState<NewRecordingScreen> createState() => _NewRecordingScreenState();
@@ -118,11 +121,11 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
       _startCueTimer();
     } catch (e) {
       if (mounted) {
+        final message = defaultTargetPlatform == TargetPlatform.windows
+            ? 'Windows could open the camera preview but could not start video capture. Close other apps using this camera, then refresh or select the camera again. Details: $e'
+            : 'Failed to start recording: $e';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to start recording: $e'),
-            backgroundColor: AppTheme.error,
-          ),
+          SnackBar(content: Text(message), backgroundColor: AppTheme.error),
         );
       }
     }
@@ -197,13 +200,24 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
             'signId': widget.context.signId,
           },
         ).toString();
-        context.push(reviewLocation, extra: {'recordedVideo': _recordedVideo});
+        context.push(
+          reviewLocation,
+          extra: {
+            'recordedVideo': _recordedVideo,
+            if (widget.workspace != null) 'workspace': widget.workspace,
+          },
+        );
       }
     } catch (e) {
       if (mounted) {
-        if (!cameraStopped) {
+        if (!cameraStopped && _cameraService.isRecording) {
           _recordingStopwatch.start();
           _startCueTimer();
+        } else if (!cameraStopped) {
+          _recordingStopwatch.stop();
+          setState(() {
+            _isRecording = false;
+          });
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -216,7 +230,14 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
   }
 
   Map<String, dynamic> _markerForStep(int step, int timestampMs) {
-    final format = captureFormatById(widget.context.captureFormat)!;
+    final format = captureFormatById(widget.context.captureFormat);
+    if (format == null) {
+      return {
+        'event_marker': 'recording_started',
+        'elapsed_seconds': timestampMs / 1000,
+        'timestamp_ms': timestampMs,
+      };
+    }
     final target = switch (format.id) {
       'standard_frontal' => 'standard_sign',
       'repeat_frontal' => 'natural_repeat',
@@ -235,8 +256,16 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
   @override
   void dispose() {
     _recordingTimer?.cancel();
-    _cameraService.dispose();
+    unawaited(_disposeCameraSafely());
     super.dispose();
+  }
+
+  Future<void> _disposeCameraSafely() async {
+    try {
+      await _cameraService.dispose();
+    } catch (error) {
+      debugPrint('Camera cleanup failed: $error');
+    }
   }
 
   @override
@@ -244,6 +273,7 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
       appBar: AppBar(
+        leading: NavigationBackButton(enabled: !_isRecording),
         title: Text(_isRecording ? '● RECORDING' : '← RECORDING'),
         actions: [
           Text(
@@ -370,69 +400,84 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
   }
 
   Widget _buildCameraView(CameraDiagnostics diagnostics) {
-    return Column(
-      children: [
-        // Recording metadata
-        _buildMetadata(),
-
-        // Camera preview with recording overlay
-        Expanded(
-          child: Stack(
-            children: [
-              // Camera preview - stays mounted continuously
-              _cameraService.controller != null
-                  ? CameraPreview(_cameraService.controller!)
-                  : const Center(child: Text('Camera preview not available')),
-
-              if (!_isRecording) _buildFramingReminder(),
-              // Recording timer overlay (only during recording)
-              if (_isRecording)
-                Positioned(
-                  top: 20,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 12,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        _formatDuration(_recordingDuration),
-                        style: const TextStyle(
-                          color: AppTheme.ivory,
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 520;
+        final preview = _buildCameraPreview();
+        if (compact) {
+          return SingleChildScrollView(
+            child: Column(
+              children: [
+                _buildMetadata(),
+                SizedBox(
+                  height: (constraints.maxHeight * 0.42)
+                      .clamp(140.0, 240.0)
+                      .toDouble(),
+                  child: preview,
                 ),
-            ],
-          ),
-        ),
-
-        // Camera controls or stop button
-        _buildControls(diagnostics),
-      ],
+                _buildControls(diagnostics),
+              ],
+            ),
+          );
+        }
+        return Column(
+          children: [
+            _buildMetadata(),
+            Expanded(child: preview),
+            _buildControls(diagnostics),
+          ],
+        );
+      },
     );
   }
 
+  Widget _buildCameraPreview() => Stack(
+    children: [
+      _cameraService.controller != null
+          ? CameraPreview(_cameraService.controller!)
+          : const Center(child: Text('Camera preview not available')),
+      if (!_isRecording) _buildFramingReminder(),
+      if (_isRecording)
+        Positioned(
+          top: 20,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                _formatDuration(_recordingDuration),
+                style: const TextStyle(
+                  color: AppTheme.ivory,
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+
   Widget _buildControls(CameraDiagnostics diagnostics) {
     if (_isRecording) {
+      final compact = MediaQuery.sizeOf(context).height < 700;
       // Stop button during recording
       return Padding(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(compact ? 8 : 24),
         child: ElevatedButton(
           onPressed: _stopRecording,
           style: ElevatedButton.styleFrom(
             backgroundColor: AppTheme.error,
             foregroundColor: AppTheme.ivory,
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 24 : 32,
+              vertical: compact ? 8 : 16,
+            ),
           ),
           child: const Text('■ STOP'),
         ),
@@ -444,8 +489,9 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
   }
 
   Widget _buildMetadata() {
+    final compact = MediaQuery.sizeOf(context).height < 700;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(compact ? 8 : 16),
       decoration: BoxDecoration(
         color: AppTheme.primaryBackground,
         border: Border(
@@ -456,27 +502,37 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            widget.context.signLabel,
-            style: const TextStyle(
+            widget.context.signLabel.isEmpty
+                ? 'Continuous conversation or narrative'
+                : widget.context.signLabel,
+            style: TextStyle(
               color: AppTheme.ivory,
-              fontSize: 24,
+              fontSize: compact ? 18 : 24,
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Text(
-                widget.context.signerId,
-                style: const TextStyle(color: AppTheme.ivory),
-              ),
-              const Text(' • ', style: TextStyle(color: AppTheme.ivory)),
-              Text(
-                widget.context.captureFormatLabel,
-                style: const TextStyle(color: AppTheme.ivory),
-              ),
-            ],
-          ),
+          if (widget.context.signerId.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Text(
+                  widget.context.signerId,
+                  style: const TextStyle(color: AppTheme.ivory),
+                ),
+                const Text(' • ', style: TextStyle(color: AppTheme.ivory)),
+                Text(
+                  widget.context.captureFormatLabel,
+                  style: const TextStyle(color: AppTheme.ivory),
+                ),
+              ],
+            ),
+          ] else ...[
+            const SizedBox(height: 4),
+            Text(
+              widget.context.captureFormatLabel,
+              style: const TextStyle(color: AppTheme.ivory),
+            ),
+          ],
         ],
       ),
     );
@@ -511,8 +567,9 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
   }
 
   Widget _buildCameraControls(CameraDiagnostics diagnostics) {
+    final compact = MediaQuery.sizeOf(context).height < 700;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(compact ? 8 : 16),
       decoration: BoxDecoration(
         color: AppTheme.primaryBackground,
         border: Border(
@@ -561,12 +618,14 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
           ),
 
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'To use a phone as this PC’s camera, connect it in USB webcam mode or use a phone webcam app, then tap refresh. On Android, choose the rear or connected USB camera here.',
-            style: TextStyle(color: AppTheme.mutedText, fontSize: 12),
+            style: const TextStyle(color: AppTheme.mutedText, fontSize: 12),
+            maxLines: compact ? 2 : null,
+            overflow: compact ? TextOverflow.ellipsis : null,
           ),
 
-          const SizedBox(height: 12),
+          SizedBox(height: compact ? 6 : 12),
 
           // Camera diagnostics
           Row(
@@ -589,7 +648,7 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
             ],
           ),
 
-          const SizedBox(height: 16),
+          SizedBox(height: compact ? 8 : 16),
 
           // Record button
           ElevatedButton(
@@ -597,7 +656,10 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.error,
               foregroundColor: AppTheme.ivory,
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 24 : 32,
+                vertical: compact ? 8 : 16,
+              ),
             ),
             child: const Text('● RECORD'),
           ),

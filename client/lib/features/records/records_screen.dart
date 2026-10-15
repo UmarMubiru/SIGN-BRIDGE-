@@ -6,6 +6,7 @@ import 'dart:math';
 
 import '../../app/theme/app_theme.dart';
 import '../../app/widgets/app_card.dart';
+import '../../app/widgets/navigation_back_button.dart';
 import '../../app/widgets/status_chip.dart';
 import '../../core/api_client.dart';
 import '../../core/constants/recording_protocol.dart';
@@ -76,6 +77,7 @@ class _RecordsScreenState extends ConsumerState<RecordsScreen> {
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
       appBar: AppBar(
+        leading: const NavigationBackButton(),
         title: const Text('Recordings'),
         actions: [
           PopupMenuButton<String>(
