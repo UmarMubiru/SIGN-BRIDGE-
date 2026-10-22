@@ -34,22 +34,22 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
 
     try {
       final sessions = await _apiClient.listSessions();
+      if (!mounted) return;
       setState(() {
         _sessions = sessions;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to load sessions: ${e.toString()}'),
-            backgroundColor: AppTheme.error,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load sessions: ${e.toString()}'),
+          backgroundColor: AppTheme.error,
+        ),
+      );
     }
   }
 
@@ -138,15 +138,19 @@ class _SessionCard extends StatelessWidget {
   final Map<String, dynamic> session;
   final VoidCallback onTap;
 
-  const _SessionCard({super.key, required this.session, required this.onTap});
+  const _SessionCard({required this.session, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final status = session['status'] as String;
-    final totalRecordings = session['total_recordings'] as int;
-    final successfulRecordings = session['successful_recordings'] as int;
-    final venue = session['venue'] as String;
-    final protocol = session['protocol_version'] as String;
+    final status = session['status']?.toString() ?? 'unknown';
+    final totalRecordings = _asInt(session['total_recordings']);
+    final successfulRecordings = _asInt(session['successful_recordings']);
+    final venue = session['venue']?.toString().trim();
+    final protocol = session['protocol_version']?.toString() ?? 'v1';
+    final sessionLabel =
+        session['public_id']?.toString() ??
+        session['id']?.toString() ??
+        'Session';
 
     StatusType statusType;
     switch (status.toLowerCase()) {
@@ -175,7 +179,7 @@ class _SessionCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      session['public_id'],
+                      sessionLabel,
                       style: const TextStyle(
                         color: AppTheme.ivory,
                         fontSize: 16,
@@ -184,7 +188,9 @@ class _SessionCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      venue,
+                      venue == null || venue.isEmpty
+                          ? 'Venue not recorded'
+                          : venue,
                       style: const TextStyle(
                         color: AppTheme.mutedText,
                         fontSize: 12,
@@ -227,5 +233,10 @@ class _SessionCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  int _asInt(Object? value) {
+    if (value is int) return value;
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 }

@@ -17,16 +17,22 @@ def get_current_user(
     """Dependency to get current authenticated user"""
     token = credentials.credentials
     payload = decode_token(token)
-    if not payload:
+    public_id = payload.get("sub") if payload else None
+    token_version = payload.get("ver") if payload else None
+    if (
+        not payload
+        or payload.get("type") != "access"
+        or not isinstance(public_id, str)
+        or not isinstance(token_version, int)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token"
         )
-    
-    public_id = payload.get("sub")
+
     user_repo = UserRepository(db)
     auth_service = AuthService(user_repo)
-    user = auth_service.get_current_user(public_id)
+    user = auth_service.get_current_user(public_id, token_version)
     
     if not user:
         raise HTTPException(

@@ -85,7 +85,6 @@ class WorkspaceCopyService {
           'workspace_id': workspace.id,
           'workspace_name': workspace.name,
           'created_at': DateTime.now().toUtc().toIso8601String(),
-          'source_workspace': sourcePath,
           'files': checksums,
         }),
         flush: true,

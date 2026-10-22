@@ -1,0 +1,160 @@
+name: Build SignBridge distribution artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: Optional public FastAPI base URL, including /api/v1. Leave blank to disable cloud sign-in in release builds.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows release installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install offline frame-analysis build dependencies
+        run: python -m pip install -r backend/requirements-dataset-export.txt
+
+      - name: Install Inno Setup 6
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc.exe -ErrorAction SilentlyContinue)) {
+            choco install innosetup --yes --no-progress
+          }
+
+      - name: Resolve dependencies
+        working-directory: client
+        run: flutter pub get
+
+      - name: Analyze and test
+        working-directory: client
+        run: |
+          flutter analyze lib/core/api_configuration.dart lib/core/api_client.dart lib/features/auth/cloud_account_screen.dart lib/features/workspace/settings_screen.dart test/api_configuration_test.dart test/cloud_account_configuration_test.dart test/settings_screen_test.dart
+          flutter test --concurrency=1
+
+      - name: Build Windows installer
+        shell: pwsh
+        env:
+          RELEASE_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: |
+          $scriptArguments = @{}
+          if (-not [string]::IsNullOrWhiteSpace($env:RELEASE_API_BASE_URL)) {
+            $scriptArguments.ApiBaseUrl = $env:RELEASE_API_BASE_URL
+          }
+          ./client/scripts/build_windows_installer.ps1 @scriptArguments
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SignBridge-Windows-${{ github.run_number }}
+          path: |
+            client/build/installer/SignBridge-Setup-*-Windows-x64.exe
+            client/build/installer/SignBridge-Setup-*-Windows-x64.exe.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  android:
+    name: Android release APK
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: client
+        run: flutter pub get
+
+      - name: Analyze and test
+        working-directory: client
+        run: |
+          flutter analyze lib/core/api_configuration.dart lib/core/api_client.dart lib/features/auth/cloud_account_screen.dart lib/features/workspace/settings_screen.dart test/api_configuration_test.dart test/cloud_account_configuration_test.dart test/settings_screen_test.dart
+          flutter test --concurrency=1
+
+      - name: Configure release signing when repository secrets are available
+        id: signing
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SIGNBRIDGE_RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.SIGNBRIDGE_RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SIGNBRIDGE_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SIGNBRIDGE_RELEASE_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$KEYSTORE_BASE64" && -n "$STORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" ]]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > client/android/app/signbridge-release.jks
+            {
+              printf 'storeFile=app/signbridge-release.jks\n'
+              printf 'storePassword=%s\n' "$STORE_PASSWORD"
+              printf 'keyAlias=%s\n' "$KEY_ALIAS"
+              printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+            } > client/android/key.properties
+            echo 'signed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'signed=false' >> "$GITHUB_OUTPUT"
+            echo 'No complete Android signing secret set is available; this run will produce an unsigned test APK.'
+          fi
+
+      - name: Build Android APK
+        working-directory: client
+        env:
+          RELEASE_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: |
+          args=(build apk --release)
+          if [[ -n "$RELEASE_API_BASE_URL" ]]; then
+            args+=("--dart-define=SIGNBRIDGE_API_BASE_URL=$RELEASE_API_BASE_URL")
+          fi
+          flutter "${args[@]}"
+
+      - name: Verify APK signature when signed
+        if: steps.signing.outputs.signed == 'true'
+        run: |
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          apksigner_path="$(find "$sdk_root/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$apksigner_path"
+          "$apksigner_path" verify --verbose client/build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Calculate SHA-256 and label artifact
+        shell: bash
+        env:
+          APK_SIGNED: ${{ steps.signing.outputs.signed }}
+        run: |
+          cd client/build/app/outputs/flutter-apk
+          sha256sum app-release.apk > app-release.apk.sha256
+          if [[ "$APK_SIGNED" == 'true' ]]; then
+            echo 'ARTIFACT_LABEL=SignBridge-Android-signed' >> "$GITHUB_ENV"
+          else
+            echo 'ARTIFACT_LABEL=SignBridge-Android-unsigned-test-only' >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_LABEL }}-${{ github.run_number }}
+          path: |
+            client/build/app/outputs/flutter-apk/app-release.apk
+            client/build/app/outputs/flutter-apk/app-release.apk.sha256
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,6 @@
+# Copy this file to key.properties (ignored by Git) after creating a release key.
+# storeFile is relative to the android/ directory.
+storeFile=app/signbridge-release.jks
+storePassword=REPLACE_WITH_LOCAL_KEYSTORE_PASSWORD
+keyAlias=signbridge
+keyPassword=REPLACE_WITH_LOCAL_KEY_PASSWORD

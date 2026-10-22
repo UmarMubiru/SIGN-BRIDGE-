@@ -9,6 +9,8 @@ The application is prepared for this low-cost pilot stack:
 
 The backend Dockerfile reads Cloud Run's `PORT`, the production settings validate the required database and R2 configuration, and Alembic owns the schema. The Flutter app accepts its public API URL through `SIGNBRIDGE_API_BASE_URL` at build time.
 
+Debug clients without that define use localhost for development. Profile and release clients without it are intentionally unconfigured: optional cloud sign-in shows a setup message instead of trying localhost. Local workspace collection remains available. Do not supply a fabricated service URL; configure the client only after the Cloud Run URL and authentication endpoints have been verified. See [team distribution instructions](TEAM_DISTRIBUTION.md).
+
 ## Values and where they belong
 
 Keep provider credentials out of source files, Flutter build arguments, and chat. The ignored `backend/.env` file is for local development and one-off migrations. For the hosted backend, put secrets in Google Secret Manager and expose them to Cloud Run as environment variables.

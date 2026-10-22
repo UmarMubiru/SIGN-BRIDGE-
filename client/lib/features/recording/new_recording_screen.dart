@@ -270,20 +270,45 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final showCaptureFormat = screenWidth >= 440;
+    final appBarLabelWidth = (screenWidth * 0.36).clamp(96.0, 220.0).toDouble();
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
       appBar: AppBar(
         leading: NavigationBackButton(enabled: !_isRecording),
-        title: Text(_isRecording ? '● RECORDING' : '← RECORDING'),
+        title: Text(
+          _isRecording ? '● RECORDING' : '← RECORDING',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          softWrap: false,
+        ),
         actions: [
-          Text(
-            widget.context.captureFormatLabel,
-            style: const TextStyle(
-              color: AppTheme.gold,
-              fontWeight: FontWeight.bold,
+          if (showCaptureFormat)
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: appBarLabelWidth),
+              child: Center(
+                child: Text(
+                  widget.context.captureFormatLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: const TextStyle(
+                    color: AppTheme.gold,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            )
+          else
+            Tooltip(
+              message: widget.context.captureFormatLabel,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Icon(Icons.video_library_outlined, color: AppTheme.gold),
+              ),
             ),
-          ),
-          const SizedBox(width: 16),
+          if (showCaptureFormat) const SizedBox(width: 12),
         ],
       ),
       body: _buildBody(),
@@ -515,14 +540,22 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
             const SizedBox(height: 4),
             Row(
               children: [
-                Text(
-                  widget.context.signerId,
-                  style: const TextStyle(color: AppTheme.ivory),
+                Flexible(
+                  child: Text(
+                    widget.context.signerId,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppTheme.ivory),
+                  ),
                 ),
                 const Text(' • ', style: TextStyle(color: AppTheme.ivory)),
-                Text(
-                  widget.context.captureFormatLabel,
-                  style: const TextStyle(color: AppTheme.ivory),
+                Flexible(
+                  child: Text(
+                    widget.context.captureFormatLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppTheme.ivory),
+                  ),
                 ),
               ],
             ),
@@ -628,23 +661,31 @@ class _NewRecordingScreenState extends ConsumerState<NewRecordingScreen> {
           SizedBox(height: compact ? 6 : 12),
 
           // Camera diagnostics
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Icon(Icons.check_circle, color: AppTheme.success, size: 16),
-              const SizedBox(width: 4),
-              const Text(
-                'Camera ready',
-                style: TextStyle(color: AppTheme.ivory),
+              const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_circle, color: AppTheme.success, size: 16),
+                  SizedBox(width: 4),
+                  Text('Camera ready', style: TextStyle(color: AppTheme.ivory)),
+                ],
               ),
-              const SizedBox(width: 16),
-              if (diagnostics.resolution != null) ...[
-                const Icon(Icons.hd, color: AppTheme.gold, size: 16),
-                const SizedBox(width: 4),
-                Text(
-                  diagnostics.resolution!,
-                  style: const TextStyle(color: AppTheme.ivory),
+              if (diagnostics.resolution != null)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.hd, color: AppTheme.gold, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      diagnostics.resolution!,
+                      style: const TextStyle(color: AppTheme.ivory),
+                    ),
+                  ],
                 ),
-              ],
             ],
           ),
 

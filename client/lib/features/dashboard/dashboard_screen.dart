@@ -17,7 +17,35 @@ class DashboardScreen extends ConsumerWidget {
     final workspace = ref.watch(activeWorkspaceProvider);
     return Scaffold(
       backgroundColor: AppTheme.primaryBackground,
-      appBar: AppBar(title: const Text('Collection overview')),
+      appBar: AppBar(
+        toolbarHeight: 90,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            RichText(
+              text: const TextSpan(
+                style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800),
+                children: [
+                  TextSpan(
+                    text: 'Sign',
+                    style: TextStyle(color: AppTheme.teal),
+                  ),
+                  TextSpan(
+                    text: 'Bridge',
+                    style: TextStyle(color: AppTheme.gold),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'Different Hands • Same Voice',
+              style: TextStyle(color: AppTheme.mutedText, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
       body: SafeArea(
         child: workspace.when(
           loading: () => const Center(child: CircularProgressIndicator()),
@@ -87,6 +115,7 @@ class _WorkspaceOverview extends StatefulWidget {
 }
 
 class _WorkspaceOverviewState extends State<_WorkspaceOverview> {
+  late Future<List<WorkspaceActivity>> _activity;
   late Future<List<LocalWorkspaceRecording>> _recordings;
 
   @override
@@ -109,6 +138,7 @@ class _WorkspaceOverviewState extends State<_WorkspaceOverview> {
   }
 
   void _load() {
+    _activity = LocalRecordingService().listRecentActivity(widget.workspace);
     _recordings = LocalRecordingService().listRecordings(widget.workspace);
   }
 
@@ -118,16 +148,10 @@ class _WorkspaceOverviewState extends State<_WorkspaceOverview> {
   }
 
   @override
-  Widget build(
-    BuildContext context,
-  ) => FutureBuilder<List<LocalWorkspaceRecording>>(
-    future: _recordings,
+  Widget build(BuildContext context) => FutureBuilder<List<WorkspaceActivity>>(
+    future: _activity,
     builder: (context, snapshot) {
-      final recordings = snapshot.data ?? const <LocalWorkspaceRecording>[];
-      final approved = recordings
-          .where((r) => r.reviewStatus == 'approved')
-          .length;
-      final missing = recordings.where((r) => !r.videoExists).length;
+      final activity = snapshot.data ?? const <WorkspaceActivity>[];
       return LayoutBuilder(
         builder: (context, constraints) {
           final narrow = constraints.maxWidth < 640;
@@ -172,26 +196,44 @@ class _WorkspaceOverviewState extends State<_WorkspaceOverview> {
                 ),
               ),
               const SizedBox(height: 18),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  _MetricCard(
-                    label: 'Saved videos',
-                    value: snapshot.hasError ? '—' : '${recordings.length}',
-                    icon: Icons.video_library_outlined,
-                  ),
-                  _MetricCard(
-                    label: 'Approved',
-                    value: snapshot.hasError ? '—' : '$approved',
-                    icon: Icons.check_circle_outline,
-                  ),
-                  _MetricCard(
-                    label: 'Missing files',
-                    value: snapshot.hasError ? '—' : '$missing',
-                    icon: Icons.warning_amber_outlined,
-                  ),
-                ],
+              FutureBuilder<List<LocalWorkspaceRecording>>(
+                future: _recordings,
+                builder: (context, recordingSnapshot) {
+                  final recordings =
+                      recordingSnapshot.data ??
+                      const <LocalWorkspaceRecording>[];
+                  final approved = recordings
+                      .where(
+                        (recording) => recording.reviewStatus == 'approved',
+                      )
+                      .length;
+                  final missing = recordings
+                      .where((recording) => !recording.videoExists)
+                      .length;
+                  return Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      _MetricCard(
+                        label: 'Saved videos',
+                        value: recordingSnapshot.hasError
+                            ? '—'
+                            : '${recordings.length}',
+                        icon: Icons.video_library_outlined,
+                      ),
+                      _MetricCard(
+                        label: 'Approved',
+                        value: recordingSnapshot.hasError ? '—' : '$approved',
+                        icon: Icons.check_circle_outline,
+                      ),
+                      _MetricCard(
+                        label: 'Missing files',
+                        value: recordingSnapshot.hasError ? '—' : '$missing',
+                        icon: Icons.warning_amber_outlined,
+                      ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 18),
               AppCard(
@@ -208,7 +250,7 @@ class _WorkspaceOverviewState extends State<_WorkspaceOverview> {
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      'Record continuously, review the clip, then approve it into this workspace.',
+                      'Choose a signer and signing conditions, select a word, then record and review it into this workspace.',
                       style: TextStyle(color: AppTheme.mutedText),
                     ),
                     const SizedBox(height: 14),
@@ -217,17 +259,9 @@ class _WorkspaceOverviewState extends State<_WorkspaceOverview> {
                       runSpacing: 10,
                       children: [
                         FilledButton.icon(
-                          onPressed: () => context.go('/recording/new'),
+                          onPressed: () => context.go('/sessions/create'),
                           icon: const Icon(Icons.fiber_manual_record),
                           label: const Text('NEW RECORDING'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () => context.push(
-                            '/workspace/recordings',
-                            extra: {'workspace': widget.workspace},
-                          ),
-                          icon: const Icon(Icons.video_library_outlined),
-                          label: const Text('WORKSPACE RECORDINGS'),
                         ),
                       ],
                     ),
@@ -240,7 +274,7 @@ class _WorkspaceOverviewState extends State<_WorkspaceOverview> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Recent local recordings',
+                      'Recent activity',
                       style: TextStyle(
                         color: AppTheme.ivory,
                         fontSize: 18,
@@ -252,44 +286,39 @@ class _WorkspaceOverviewState extends State<_WorkspaceOverview> {
                       const LinearProgressIndicator()
                     else if (snapshot.hasError)
                       Text(
-                        'Could not read workspace recordings: ${snapshot.error}',
+                        'Could not read workspace activity: ${snapshot.error}',
                         style: const TextStyle(color: AppTheme.error),
                       )
-                    else if (recordings.isEmpty)
+                    else if (activity.isEmpty)
                       const Text(
-                        'No recordings saved yet. New recordings will appear here after local approval.',
+                        'Workspace activity will appear here as you collect and review data.',
                         style: TextStyle(color: AppTheme.mutedText),
                       )
                     else
-                      for (final recording in recordings.take(5))
+                      for (final event in activity.take(8))
                         ListTile(
                           contentPadding: EdgeInsets.zero,
-                          leading: Icon(
-                            recording.videoExists
-                                ? Icons.play_circle_outline
-                                : Icons.warning_amber,
-                            color: recording.videoExists
-                                ? AppTheme.teal
-                                : AppTheme.gold,
-                          ),
+                          leading: Icon(event.icon, color: AppTheme.teal),
                           title: Text(
-                            recording.fileName,
+                            event.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(color: AppTheme.ivory),
                           ),
                           subtitle: Text(
-                            '${recording.recordingType} · ${recording.reviewStatus}',
+                            '${event.details} · ${_activityDate(event.createdAt)}',
                             style: const TextStyle(color: AppTheme.mutedText),
                           ),
                           trailing: const Icon(
                             Icons.chevron_right,
                             color: AppTheme.mutedText,
                           ),
-                          onTap: () => context.push(
-                            '/workspace/recordings/${recording.id}',
-                            extra: {'workspace': widget.workspace},
-                          ),
+                          onTap: event.recordingId == null
+                              ? null
+                              : () => context.push(
+                                  '/workspace/recordings/${event.recordingId}',
+                                  extra: {'workspace': widget.workspace},
+                                ),
                         ),
                   ],
                 ),
@@ -308,6 +337,7 @@ class _MetricCard extends StatelessWidget {
     required this.value,
     required this.icon,
   });
+
   final String label;
   final String value;
   final IconData icon;
@@ -340,6 +370,11 @@ class _MetricCard extends StatelessWidget {
       ),
     ),
   );
+}
+
+String _activityDate(DateTime date) {
+  final local = date.toLocal();
+  return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
 }
 
 class _Notice extends StatelessWidget {

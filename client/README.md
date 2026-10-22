@@ -1,5 +1,7 @@
 # SignBridge client
 
+The first team distribution version is `0.1.0+1`. Rebuild platform launcher icons from the supplied source logo with `python tools/generate_app_icons.py` (requires Pillow). The application displays its Flutter build version under Settings.
+
 The Flutter desktop client is local-first. Create a workspace on a local or removable drive before collecting data. The workspace holds `workspace.json`, `database.sqlite3`, `videos/`, `exports/`, and `backups/`. Participant and recording metadata stays in SQLite; original videos stay as files referenced by workspace-relative paths.
 
 ## Windows local workflow

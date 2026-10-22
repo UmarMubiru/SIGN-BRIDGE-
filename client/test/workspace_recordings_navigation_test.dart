@@ -30,7 +30,7 @@ void main() {
     await tempDirectory.delete(recursive: true);
     debugDefaultTargetPlatformOverride = null;
   });
-  testWidgets('workspace recording entry opens the pinned workspace library', (
+  testWidgets('workspace management does not start recording directly', (
     tester,
   ) async {
     final router = GoRouter(
@@ -65,12 +65,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('START CONTINUOUS RECORDING'), findsOneWidget);
-    await tester.tap(find.text('START CONTINUOUS RECORDING'));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 2));
-    await tester.pump();
-    expect(find.text('Pinned Library Study; sign '), findsOneWidget);
+    expect(find.text('Library Study'), findsOneWidget);
+    expect(find.text('START CONTINUOUS RECORDING'), findsNothing);
     expect(tester.takeException(), isNull);
     debugDefaultTargetPlatformOverride = null;
   });

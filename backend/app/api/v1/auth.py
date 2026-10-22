@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.auth_dependencies import get_current_user
@@ -69,3 +69,19 @@ def refresh_token(refresh_token: str = Body(..., embed=True), db: Session = Depe
 def get_me(current_user: UserResponse = Depends(get_current_user)):
     """Get current user info"""
     return current_user
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke the current user's access and refresh tokens."""
+    user_repo = UserRepository(db)
+    auth_service = AuthService(user_repo)
+    if not auth_service.logout_user(current_user.public_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

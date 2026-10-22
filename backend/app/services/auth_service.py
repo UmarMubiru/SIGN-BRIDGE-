@@ -30,8 +30,12 @@ class AuthService:
         self.user_repo.update_last_login(user)
         
         # Create tokens
-        access_token = create_access_token(data={"sub": user.public_id})
-        refresh_token = create_refresh_token(data={"sub": user.public_id})
+        token_claims = {
+            "sub": user.public_id,
+            "ver": int(user.token_version or 0),
+        }
+        access_token = create_access_token(data=token_claims)
+        refresh_token = create_refresh_token(data=token_claims)
         
         return Token(
             access_token=access_token,
@@ -42,17 +46,29 @@ class AuthService:
     def refresh_tokens(self, refresh_token: str) -> Token:
         """Refresh access token using refresh token"""
         payload = decode_token(refresh_token)
-        if not payload or payload.get("type") != "refresh":
+        if (
+            not payload
+            or payload.get("type") != "refresh"
+            or not isinstance(payload.get("ver"), int)
+        ):
             raise ValueError("Invalid refresh token")
         
         public_id = payload.get("sub")
         user = self.user_repo.get_user_by_public_id(public_id)
-        if not user or not user.is_active:
+        if (
+            not user
+            or not user.is_active
+            or int(user.token_version or 0) != payload["ver"]
+        ):
             raise ValueError("User not found or inactive")
         
         # Create new tokens
-        access_token = create_access_token(data={"sub": user.public_id})
-        new_refresh_token = create_refresh_token(data={"sub": user.public_id})
+        token_claims = {
+            "sub": user.public_id,
+            "ver": int(user.token_version or 0),
+        }
+        access_token = create_access_token(data=token_claims)
+        new_refresh_token = create_refresh_token(data=token_claims)
         
         return Token(
             access_token=access_token,
@@ -60,9 +76,19 @@ class AuthService:
             user=UserResponse.model_validate(user)
         )
 
-    def get_current_user(self, public_id: str) -> Optional[UserResponse]:
+    def get_current_user(
+        self, public_id: str, token_version: int
+    ) -> Optional[UserResponse]:
         """Get current user by public_id from token"""
         user = self.user_repo.get_user_by_public_id(public_id)
-        if user and user.is_active:
+        if (
+            user
+            and user.is_active
+            and int(user.token_version or 0) == token_version
+        ):
             return UserResponse.model_validate(user)
         return None
+
+    def logout_user(self, public_id: str) -> bool:
+        """Invalidate all access and refresh tokens for one user."""
+        return self.user_repo.increment_token_version(public_id)

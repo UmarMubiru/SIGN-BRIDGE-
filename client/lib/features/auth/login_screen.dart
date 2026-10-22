@@ -8,7 +8,9 @@ import '../../core/api_client.dart';
 import 'auth_page_layout.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.returnTo});
+
+  final String? returnTo;
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -45,7 +47,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           setState(() {
             _isLoading = false;
           });
-          context.go('/dashboard');
+          context.go(_safeReturnLocation(widget.returnTo));
         }
       } catch (e) {
         if (mounted) {
@@ -148,7 +150,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   style: TextStyle(color: AppTheme.ivory),
                 ),
                 TextButton(
-                  onPressed: () => context.go('/register'),
+                  onPressed: () => context.go(
+                    Uri(
+                      path: '/register',
+                      queryParameters: {
+                        if (widget.returnTo != null)
+                          'returnTo': _safeReturnLocation(widget.returnTo),
+                      },
+                    ).toString(),
+                  ),
                   child: const Text('Create one'),
                 ),
               ],
@@ -159,3 +169,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 }
+
+String _safeReturnLocation(String? value) =>
+    value != null && value.startsWith('/') && !value.startsWith('//')
+    ? value
+    : '/dashboard';

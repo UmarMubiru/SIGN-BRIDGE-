@@ -8,7 +8,9 @@ import '../../core/api_client.dart';
 import 'auth_page_layout.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
-  const RegisterScreen({super.key});
+  const RegisterScreen({super.key, this.returnTo});
+
+  final String? returnTo;
 
   @override
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
@@ -53,7 +55,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           backgroundColor: AppTheme.teal,
         ),
       );
-      context.go('/login');
+      context.go(
+        Uri(
+          path: '/login',
+          queryParameters: {
+            if (widget.returnTo != null) 'returnTo': widget.returnTo!,
+          },
+        ).toString(),
+      );
     } catch (error) {
       if (!mounted) return;
       setState(() => _isLoading = false);

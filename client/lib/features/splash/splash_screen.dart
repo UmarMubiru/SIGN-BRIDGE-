@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../core/workspace/workspace_service.dart';
 
 String startupRouteForPlatform(TargetPlatform platform) => switch (platform) {
   TargetPlatform.windows ||
@@ -30,11 +31,25 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     super.initState();
     // Desktop and Android collection start from their platform-appropriate
     // local workspace. Cloud login remains an explicit workspace action.
-    _navigationTimer = Timer(const Duration(seconds: 2), () {
-      if (mounted) {
-        context.go(startupRouteForPlatform(defaultTargetPlatform));
-      }
-    });
+    _navigationTimer = Timer(const Duration(seconds: 2), _openLocalWorkspace);
+  }
+
+  Future<void> _openLocalWorkspace() async {
+    if (!mounted) return;
+    final initialRoute = startupRouteForPlatform(defaultTargetPlatform);
+    if (initialRoute != '/workspace') {
+      context.go(initialRoute);
+      return;
+    }
+    try {
+      final workspace = await ref
+          .read(workspaceServiceProvider)
+          .loadActiveWorkspace();
+      if (mounted) context.go(workspace == null ? '/workspace' : '/dashboard');
+    } catch (_) {
+      // A missing or unavailable workspace should return to local setup.
+      if (mounted) context.go('/workspace');
+    }
   }
 
   @override

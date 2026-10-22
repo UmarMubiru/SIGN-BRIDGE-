@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
@@ -51,6 +52,62 @@ class WorkspaceService {
     _ensureSupportedPlatform();
     final workspace = await _validateWorkspace(rootPath);
     await _writeActiveWorkspace(workspace.rootPath);
+    return workspace;
+  }
+
+  /// Validates a staged portable copy before it can become the active workspace.
+  /// This method never updates the saved active-workspace setting.
+  Future<LocalWorkspace> validateWorkspaceForImport(String rootPath) async {
+    _ensureSupportedPlatform();
+    final workspace = await _validateWorkspace(rootPath);
+    final database = await WorkspaceDatabase.open(
+      p.join(workspace.rootPath, workspaceDatabaseName),
+    );
+    try {
+      final rows = await database.query(
+        'recordings',
+        columns: ['id', 'relative_video_path', 'file_size_bytes', 'sha256'],
+      );
+      for (final row in rows) {
+        final id = row['id'] as String;
+        final relative = row['relative_video_path'] as String?;
+        final expected = '$videoFolderName/$id/original.mp4';
+        if (relative != expected || p.isAbsolute(relative ?? '')) {
+          throw WorkspaceException(
+            'Recording $id has an invalid relative video path. The workspace copy was not activated.',
+          );
+        }
+        final path = p.normalize(p.join(workspace.rootPath, relative!));
+        if (!p.isWithin(workspace.rootPath, path)) {
+          throw WorkspaceException(
+            'Recording $id points outside the workspace. The copy was not activated.',
+          );
+        }
+        final video = File(path);
+        if (!await video.exists()) {
+          throw WorkspaceException(
+            'The workspace copy is missing video $relative. The original copy was left unchanged.',
+          );
+        }
+        final size = await video.length();
+        if (size <= 0 || size != row['file_size_bytes']) {
+          throw WorkspaceException(
+            'Video $relative failed its size check. The original copy was left unchanged.',
+          );
+        }
+        final expectedHash = row['sha256'] as String?;
+        if (expectedHash != null && expectedHash.isNotEmpty) {
+          final actualHash = await sha256.bind(video.openRead()).first;
+          if (actualHash.toString() != expectedHash.toLowerCase()) {
+            throw WorkspaceException(
+              'Video $relative failed its SHA-256 check. The original copy was left unchanged.',
+            );
+          }
+        }
+      }
+    } finally {
+      await database.close();
+    }
     return workspace;
   }
 
@@ -232,6 +289,12 @@ class WorkspaceService {
           'The workspace database could not be upgraded to the supported version.',
         );
       }
+      final integrityRows = await database.rawQuery('PRAGMA quick_check');
+      if (integrityRows.isEmpty || integrityRows.first.values.first != 'ok') {
+        throw const WorkspaceException(
+          'The workspace database failed its integrity check.',
+        );
+      }
       if (rows.single['schema_version'] != WorkspaceDatabase.schemaVersion) {
         await database.update('workspace_info', {
           'schema_version': WorkspaceDatabase.schemaVersion,
@@ -279,7 +342,17 @@ class WorkspaceService {
 
   Future<void> _writeActiveWorkspace(String rootPath) async {
     final file = await _activeWorkspaceFile();
-    await file.writeAsString(jsonEncode({'root_path': rootPath}), flush: true);
+    final temporary = File('${file.path}.${_newId()}.tmp');
+    try {
+      await temporary.writeAsString(
+        jsonEncode({'root_path': rootPath}),
+        flush: true,
+      );
+      await temporary.rename(file.path);
+    } catch (_) {
+      if (await temporary.exists()) await temporary.delete();
+      rethrow;
+    }
   }
 
   void _ensureSupportedPlatform() {

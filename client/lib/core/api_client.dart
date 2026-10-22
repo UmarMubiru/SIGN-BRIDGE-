@@ -2,7 +2,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_selector/file_selector.dart';
 
+import 'api_configuration.dart';
 import 'web/web_browser.dart' as browser;
 import 'video/video_upload.dart';
 import 'workspace/workspace_repository.dart';
@@ -40,7 +42,11 @@ String _describeVideoUploadFailure(Object error, String stage) {
 }
 
 String describeApiError(Object error) {
+  if (error is CloudApiUnavailableException) return error.message;
   if (error is DioException) {
+    if (error.error is CloudApiUnavailableException) {
+      return (error.error as CloudApiUnavailableException).message;
+    }
     final response = error.response;
     final payload = response?.data;
     final detail = payload is Map ? payload['detail'] : null;
@@ -66,10 +72,30 @@ String describeApiError(Object error) {
   return error.toString();
 }
 
+class CloudApiUnavailableException implements Exception {
+  const CloudApiUnavailableException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class ApiClient {
   static const _configuredBaseUrl = String.fromEnvironment(
     'SIGNBRIDGE_API_BASE_URL',
   );
+  static final ApiConfiguration configuration = ApiConfiguration(
+    configuredBaseUrl: _configuredBaseUrl,
+    isDebugBuild: kDebugMode,
+    isWeb: kIsWeb,
+    platform: defaultTargetPlatform,
+    webOrigin: kIsWeb ? Uri.base.origin : '',
+  );
+
+  static bool get isCloudApiConfigured => configuration.isConfigured;
+  static String get cloudApiUnavailableMessage =>
+      configuration.unavailableMessage;
 
   static final ApiClient _instance = ApiClient._internal();
   factory ApiClient() => _instance;
@@ -97,6 +123,14 @@ class ApiClient {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
+          if (!isCloudApiConfigured) {
+            return handler.reject(
+              DioException(
+                requestOptions: options,
+                error: CloudApiUnavailableException(cloudApiUnavailableMessage),
+              ),
+            );
+          }
           // Add auth token if available
           final token = await _storage.read(key: 'access_token');
           if (token != null) {
@@ -153,6 +187,14 @@ class ApiClient {
     _uploadDio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
+          if (!isCloudApiConfigured) {
+            return handler.reject(
+              DioException(
+                requestOptions: options,
+                error: CloudApiUnavailableException(cloudApiUnavailableMessage),
+              ),
+            );
+          }
           final token = await _storage.read(key: 'access_token');
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
@@ -215,22 +257,7 @@ class ApiClient {
   }
 
   static String get baseUrl {
-    if (_configuredBaseUrl.isNotEmpty) {
-      return _configuredBaseUrl.replaceFirst(RegExp(r'/+$'), '');
-    }
-    // Android emulators reach the development host through 10.0.2.2. A real
-    // phone must use a LAN/HTTPS URL supplied with SIGNBRIDGE_API_BASE_URL.
-    final host = kIsWeb && Uri.base.host.isNotEmpty
-        ? Uri.base.host
-        : defaultTargetPlatform == TargetPlatform.android
-        ? '10.0.2.2'
-        : 'localhost';
-    final scheme = kIsWeb && Uri.base.scheme == 'https' ? 'https' : 'http';
-    return Uri(
-      scheme: scheme,
-      host: host,
-      port: 8000,
-    ).resolve('/api/v1').toString();
+    return configuration.baseUrl;
   }
 
   String resolveFileUrl(String fileUrl) {
@@ -253,6 +280,7 @@ class ApiClient {
     String email,
     String password,
   ) async {
+    _requireCloudApi();
     final response = await _dio.post(
       '/auth/register',
       data: {'name': name, 'email': email, 'password': password},
@@ -261,6 +289,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> login(String email, String password) async {
+    _requireCloudApi();
     final response = await _dio.post(
       '/auth/login',
       data: {'email': email, 'password': password},
@@ -280,13 +309,31 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getCurrentUser() async {
+    _requireCloudApi();
     final response = await _dio.get('/auth/me');
     return response.data;
   }
 
-  Future<void> logout() async {
-    await _storage.delete(key: 'access_token');
-    await _storage.delete(key: 'refresh_token');
+  Future<bool> logout() async {
+    var serverRevoked = false;
+    try {
+      if (isCloudApiConfigured) {
+        await _dio.post('/auth/logout');
+        serverRevoked = true;
+      }
+    } catch (_) {
+      // Local sign-out must remain available even when the API is offline.
+    } finally {
+      await _storage.delete(key: 'access_token');
+      await _storage.delete(key: 'refresh_token');
+    }
+    return serverRevoked;
+  }
+
+  void _requireCloudApi() {
+    if (!isCloudApiConfigured) {
+      throw CloudApiUnavailableException(cloudApiUnavailableMessage);
+    }
   }
 
   Future<bool> isAuthenticated() async {
@@ -461,6 +508,19 @@ class ApiClient {
   }) async {
     final local = await _localRepository();
     if (local != null) return local.listRecordings(skip: skip, limit: limit);
+    final response = await _dio.get(
+      '/recordings/',
+      queryParameters: {'skip': skip, 'limit': limit},
+    );
+    return List<Map<String, dynamic>>.from(response.data);
+  }
+
+  /// Returns only server-hosted recordings for cloud dataset construction.
+  /// Local workspace media is never uploaded implicitly by export.
+  Future<List<Map<String, dynamic>>> listCloudRecordings({
+    int skip = 0,
+    int limit = 100,
+  }) async {
     final response = await _dio.get(
       '/recordings/',
       queryParameters: {'skip': skip, 'limit': limit},
@@ -680,9 +740,6 @@ class ApiClient {
   Future<Map<String, dynamic>> createDatasetVersion(
     Map<String, dynamic> datasetData,
   ) async {
-    if (await _localRepository() != null) {
-      throw StateError('Cloud dataset versions are unavailable in local mode.');
-    }
     final response = await _dio.post('/datasets/', data: datasetData);
     return response.data;
   }
@@ -691,7 +748,6 @@ class ApiClient {
     int skip = 0,
     int limit = 100,
   }) async {
-    if (await _localRepository() != null) return const [];
     final response = await _dio.get(
       '/datasets/',
       queryParameters: {'skip': skip, 'limit': limit},
@@ -700,9 +756,6 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getDatasetVersion(String datasetId) async {
-    if (await _localRepository() != null) {
-      throw StateError('Cloud datasets are unavailable in local mode.');
-    }
     final response = await _dio.get('/datasets/$datasetId');
     return response.data;
   }
@@ -710,19 +763,11 @@ class ApiClient {
   Future<Map<String, dynamic>> getDatasetByVersionNumber(
     String versionNumber,
   ) async {
-    if (await _localRepository() != null) {
-      throw StateError('Cloud datasets are unavailable in local mode.');
-    }
     final response = await _dio.get('/datasets/version/$versionNumber');
     return response.data;
   }
 
-  Future<void> downloadDataset(String datasetId, {String? fileName}) async {
-    if (await _localRepository() != null) {
-      throw StateError(
-        'Cloud dataset downloads are unavailable in local mode.',
-      );
-    }
+  Future<bool> downloadDataset(String datasetId, {String? fileName}) async {
     final response = await _dio.get(
       '/datasets/$datasetId/download',
       // The server prepares the ZIP before sending response headers, then
@@ -735,19 +780,13 @@ class ApiClient {
     );
 
     // Save the file (for web, trigger download)
-    if (kIsWeb) {
-      browser.downloadBytes(
-        Uint8List.fromList(List<int>.from(response.data)),
-        '${fileName ?? 'dataset'}.zip',
-        'application/zip',
-      );
-    }
+    return _saveZip(
+      Uint8List.fromList(List<int>.from(response.data)),
+      '${fileName ?? 'dataset'}.zip',
+    );
   }
 
-  Future<void> downloadAllRecordings() async {
-    if (await _localRepository() != null) {
-      throw StateError('Cloud exports are unavailable in local mode.');
-    }
+  Future<bool> downloadAllRecordings() async {
     final response = await _dio.get(
       '/datasets/recordings/download-all',
       options: Options(
@@ -758,13 +797,31 @@ class ApiClient {
     );
 
     // Save the file (for web, trigger download)
+    return _saveZip(
+      Uint8List.fromList(List<int>.from(response.data)),
+      'all_recordings.zip',
+    );
+  }
+
+  Future<bool> _saveZip(Uint8List bytes, String filename) async {
     if (kIsWeb) {
-      browser.downloadBytes(
-        Uint8List.fromList(List<int>.from(response.data)),
-        'all_recordings.zip',
-        'application/zip',
-      );
+      browser.downloadBytes(bytes, filename, 'application/zip');
+      return true;
     }
+    final location = await getSaveLocation(
+      suggestedName: filename,
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'ZIP archive', extensions: ['zip']),
+      ],
+      confirmButtonText: 'Save',
+    );
+    if (location == null) return false;
+    await XFile.fromData(
+      bytes,
+      name: filename,
+      mimeType: 'application/zip',
+    ).saveTo(location.path);
+    return true;
   }
 }
 

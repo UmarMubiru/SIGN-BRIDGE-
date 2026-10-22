@@ -623,9 +623,12 @@ class WorkspaceRepository {
       where: 'session_id = ?',
       whereArgs: [id],
     );
-    final conditions = jsonDecode(
-      row['recording_conditions_json'] as String,
-    ) as Map<String, dynamic>;
+    final decodedConditions = jsonDecode(
+      row['recording_conditions_json']?.toString() ?? '{}',
+    );
+    final conditions = decodedConditions is Map
+        ? Map<String, dynamic>.from(decodedConditions)
+        : <String, dynamic>{};
     final status = row['status']?.toString() ?? 'planned';
     return {
       ...row,

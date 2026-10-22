@@ -67,3 +67,11 @@ class UserRepository:
             self.db.commit()
             self.db.refresh(user)
         return user
+
+    def increment_token_version(self, public_id: str) -> bool:
+        user = self.get_user_by_public_id(public_id)
+        if not user:
+            return False
+        user.token_version = int(user.token_version or 0) + 1
+        self.db.commit()
+        return True

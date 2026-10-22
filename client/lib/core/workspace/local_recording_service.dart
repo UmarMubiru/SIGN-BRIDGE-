@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/material.dart' show IconData, Icons;
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -72,6 +73,22 @@ class LocalWorkspaceRecording {
   final String searchText;
 }
 
+class WorkspaceActivity {
+  const WorkspaceActivity({
+    required this.title,
+    required this.details,
+    required this.createdAt,
+    required this.icon,
+    this.recordingId,
+  });
+
+  final String title;
+  final String details;
+  final DateTime createdAt;
+  final IconData icon;
+  final String? recordingId;
+}
+
 /// Saves one continuous event video to the selected workspace without touching
 /// its source or communicating with the cloud API.
 class LocalRecordingService {
@@ -79,6 +96,63 @@ class LocalRecordingService {
     : _copyFile = copyFile ?? _copy;
 
   final RecordingFileCopier _copyFile;
+
+  Future<List<WorkspaceActivity>> listRecentActivity(
+    LocalWorkspace workspace,
+  ) async {
+    final database = await WorkspaceDatabase.open(
+      p.join(workspace.rootPath, 'database.sqlite3'),
+    );
+    try {
+      final rows = await database.rawQuery('''
+        SELECT 'Recording approved and saved' AS title,
+               COALESCE(file_name, 'Recording') AS details,
+               COALESCE(updated_at, created_at) AS activity_at,
+               'recording' AS kind, id AS recording_id
+          FROM recordings
+        UNION ALL
+        SELECT 'Session created', session_type,
+               COALESCE(updated_at, created_at), 'session', NULL
+          FROM collection_sessions
+        UNION ALL
+        SELECT 'Annotation added', COALESCE(text, annotation_kind),
+               COALESCE(updated_at, created_at), 'annotation',
+               (SELECT u.recording_id FROM utterance_segments u
+                 WHERE u.id = annotation_entries.segment_id)
+          FROM annotation_entries
+        UNION ALL
+        SELECT 'Participant added', display_label, updated_at,
+               'participant', NULL FROM participants
+        UNION ALL
+        SELECT 'Sign added', display_name, updated_at, 'sign', NULL FROM signs
+        UNION ALL
+        SELECT 'Consent updated', status, COALESCE(consented_at, created_at),
+               'consent', NULL FROM consent_records
+        ORDER BY activity_at DESC LIMIT 12
+      ''');
+      return rows.map((row) {
+        final kind = row['kind']?.toString();
+        return WorkspaceActivity(
+          title: row['title']?.toString() ?? 'Workspace updated',
+          details: row['details']?.toString() ?? '',
+          createdAt: DateTime.tryParse(row['activity_at']?.toString() ?? '') ??
+              DateTime.fromMillisecondsSinceEpoch(0),
+          recordingId: row['recording_id']?.toString(),
+          icon: switch (kind) {
+            'recording' => Icons.video_library_outlined,
+            'session' => Icons.event_note_outlined,
+            'annotation' => Icons.notes_outlined,
+            'participant' => Icons.person_outline,
+            'sign' => Icons.sign_language,
+            'consent' => Icons.verified_user_outlined,
+            _ => Icons.history,
+          },
+        );
+      }).toList();
+    } finally {
+      await database.close();
+    }
+  }
 
   Future<List<LocalWorkspaceRecording>> listRecordings(
     LocalWorkspace workspace,
@@ -322,7 +396,24 @@ class LocalRecordingService {
                 );
           final hasLinkedSession = linkedSession.isNotEmpty;
           final sessionId = hasLinkedSession ? requestedSessionId : 'event-$id';
-          final linkedParticipants = <String>{...participantIds};
+          final signerParticipantId = await _ensureLocalParticipant(
+            txn,
+            recording.context.signerId,
+            createdAt,
+          );
+          final localSignId = await _ensureLocalSign(
+            txn,
+            recording.context.signId,
+            recording.context.signLabel,
+            createdAt,
+          );
+          final requestedParticipants = <String>{
+            ...participantIds,
+            ...?(signerParticipantId == null
+                ? null
+                : <String>[signerParticipantId]),
+          };
+          final linkedParticipants = <String>{...requestedParticipants};
           if (hasLinkedSession) {
             final sessionParticipantRows = await txn.query(
               'session_participants',
@@ -349,7 +440,7 @@ class LocalRecordingService {
               'updated_at': createdAt,
             });
           }
-          for (final participantId in participantIds.toSet()) {
+          for (final participantId in requestedParticipants) {
             await txn.insert('session_participants', {
               'session_id': sessionId,
               'participant_id': participantId,
@@ -359,7 +450,7 @@ class LocalRecordingService {
             'id': id,
             'session_id': sessionId,
             'recording_type': sessionType,
-            'sign_id': await _existingSignId(txn, recording.context.signId),
+            'sign_id': localSignId,
             'capture_format': recording.context.captureFormat,
             'cue_markers_json': jsonEncode(recording.context.cueMarkers),
             'relative_video_path': relativeVideoPath,
@@ -487,8 +578,15 @@ class LocalRecordingService {
 
   static Future<File> _copy(File source, String target) => source.copy(target);
 
-  static Future<String?> _existingSignId(Transaction txn, String signId) async {
-    if (signId.isEmpty) return null;
+  static Future<String?> _ensureLocalSign(
+    Transaction txn,
+    String sourceSignId,
+    String signLabel,
+    String timestamp,
+  ) async {
+    final signId = sourceSignId.trim();
+    final label = _nonEmpty(signLabel) ?? signId;
+    if (label.isEmpty) return null;
     final signs = await txn.query(
       'signs',
       columns: ['id'],
@@ -496,7 +594,70 @@ class LocalRecordingService {
       whereArgs: [signId],
       limit: 1,
     );
-    return signs.isEmpty ? null : signs.single['id'] as String;
+    if (signs.isNotEmpty) return signs.single['id'] as String;
+
+    final code = label
+        .toUpperCase()
+        .replaceAll(RegExp(r'[^A-Z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    if (code.isEmpty) return null;
+    final existing = await txn.query(
+      'signs',
+      columns: ['id'],
+      where: 'sign_code = ?',
+      whereArgs: [code],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) return existing.single['id'] as String;
+
+    final id = _newId();
+    await txn.insert('signs', {
+      'id': id,
+      'sign_code': code,
+      'gloss': label,
+      'display_name': label,
+      'created_at': timestamp,
+      'updated_at': timestamp,
+    });
+    return id;
+  }
+
+  static Future<String?> _ensureLocalParticipant(
+    Transaction txn,
+    String sourceSignerId,
+    String timestamp,
+  ) async {
+    final code = sourceSignerId.trim();
+    if (code.isEmpty) return null;
+    final localId = await txn.query(
+      'participants',
+      columns: ['id'],
+      where: 'id = ?',
+      whereArgs: [code],
+      limit: 1,
+    );
+    if (localId.isNotEmpty) return localId.single['id'] as String;
+    final existing = await txn.query(
+      'participants',
+      columns: ['id'],
+      where: 'participant_code = ?',
+      whereArgs: [code],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) return existing.single['id'] as String;
+
+    final id = _newId();
+    await txn.insert('participants', {
+      'id': id,
+      'participant_code': code,
+      'display_label': code,
+      'category': 'signer',
+      'consent_status': 'pending',
+      'status': 'active',
+      'created_at': timestamp,
+      'updated_at': timestamp,
+    });
+    return id;
   }
 
   static Future<String> _digest(File file) async =>

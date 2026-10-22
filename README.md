@@ -1,5 +1,7 @@
 # SignBridge Data Collection Tool
 
+For local workspace backup, dataset export, and team release preparation, see [Local Workspaces](docs/LOCAL_WORKSPACES.md) and [Team Distribution](docs/TEAM_DISTRIBUTION.md).
+
 SignBridge collects Ugandan Sign Language conversation and narrative data. The Windows desktop app uses a local-first workspace: SQLite stores structured metadata and original videos remain ordinary files in that workspace. Local collection does not require an account, API, or internet connection. Cloud-backed web/account operations remain optional and separate.
 
 ## Architecture

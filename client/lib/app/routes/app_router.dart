@@ -9,11 +9,13 @@ import '../../features/splash/splash_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
+import '../../features/auth/cloud_account_screen.dart';
 import '../../features/signers/signers_screen.dart';
 import '../../features/signers/create_signer_screen.dart';
 import '../../features/signs/signs_screen.dart';
 import '../../core/recording/recording_context.dart';
 import '../../core/recording/recorded_video.dart';
+import '../../core/cloud_auth_configuration.dart';
 import '../../core/workspace/local_workspace.dart';
 import '../../core/workspace/workspace_service.dart';
 import '../../features/recording/new_recording_screen.dart';
@@ -22,17 +24,18 @@ import '../../features/sessions/session_details_screen.dart';
 import '../../features/sessions/create_session_screen.dart';
 import '../../features/sessions/sign_recording_screen.dart';
 import '../../features/recording/recording_setup_screen.dart';
-import '../../features/recording/local_recording_launch_screen.dart';
 import '../../features/review/review_screen.dart';
 import '../../features/records/records_screen.dart';
 import '../../features/coverage/coverage_screen.dart';
-import '../../features/datasets/datasets_screen.dart';
+import '../../features/datasets/local_dataset_export_screen.dart';
 import '../../features/workspace/workspace_settings_screen.dart';
 import '../../features/workspace/workspace_recordings_screen.dart';
 import '../../features/workspace/workspace_recording_viewer_screen.dart';
+import '../../features/workspace/settings_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
-  Widget workspacePage(Widget child) => WorkspaceShell(child: child);
+  Widget workspacePage(Widget child, {bool allowNoWorkspace = false}) =>
+      WorkspaceShell(allowNoWorkspace: allowNoWorkspace, child: child);
   final router = GoRouter(
     initialLocation: '/',
     routes: [
@@ -41,26 +44,30 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'splash',
         builder: (context, state) => const SplashScreen(),
       ),
-      GoRoute(
-        path: '/login',
-        name: 'login',
-        builder: (context, state) => const LoginScreen(),
-      ),
-      GoRoute(
-        path: '/register',
-        name: 'register',
-        builder: (context, state) => const RegisterScreen(),
-      ),
+      if (cloudAuthEnabled) ...[
+        GoRoute(
+          path: '/login',
+          name: 'login',
+          builder: (context, state) =>
+              LoginScreen(returnTo: state.uri.queryParameters['returnTo']),
+        ),
+        GoRoute(
+          path: '/register',
+          name: 'register',
+          builder: (context, state) =>
+              RegisterScreen(returnTo: state.uri.queryParameters['returnTo']),
+        ),
+        GoRoute(
+          path: '/account',
+          name: 'account',
+          builder: (context, state) =>
+              workspacePage(const CloudAccountScreen()),
+        ),
+      ],
       GoRoute(
         path: '/dashboard',
         name: 'dashboard',
         builder: (context, state) => workspacePage(const DashboardScreen()),
-      ),
-      GoRoute(
-        path: '/recording/new',
-        name: 'new_local_recording',
-        builder: (context, state) =>
-            workspacePage(const LocalRecordingLaunchScreen()),
       ),
       // Placeholder routes for all screens
       GoRoute(
@@ -189,13 +196,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/datasets',
         name: 'datasets',
-        builder: (context, state) => workspacePage(const DatasetsScreen()),
+        builder: (context, state) =>
+            workspacePage(const LocalDatasetExportScreen()),
       ),
       GoRoute(
         path: '/workspace',
         name: 'workspace',
-        builder: (context, state) =>
-            workspacePage(const WorkspaceSettingsScreen()),
+        builder: (context, state) => workspacePage(
+          const WorkspaceSettingsScreen(),
+          allowNoWorkspace: true,
+        ),
       ),
       GoRoute(
         path: '/workspace/recordings',
@@ -237,8 +247,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings',
         name: 'settings',
-        builder: (context, state) =>
-            workspacePage(const _PlaceholderScreen(title: 'Settings')),
+        builder: (context, state) => workspacePage(const SettingsScreen()),
       ),
     ],
   );

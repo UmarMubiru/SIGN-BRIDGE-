@@ -22,7 +22,7 @@ class _DatasetsScreenState extends ConsumerState<DatasetsScreen> {
   bool _isLoadingRecordings = true;
   List<Map<String, dynamic>> _datasets = [];
   List<Map<String, dynamic>> _recordings = [];
-  Set<String> _selectedRecordings = {};
+  final Set<String> _selectedRecordings = {};
   String? _error;
   String? _recordingsError;
   Timer? _recordingsRefreshTimer;
@@ -97,7 +97,7 @@ class _DatasetsScreenState extends ConsumerState<DatasetsScreen> {
     });
     try {
       final apiClient = ApiClient();
-      final recordings = await apiClient.listRecordings();
+      final recordings = await apiClient.listCloudRecordings();
 
       if (mounted) {
         setState(() {
@@ -125,7 +125,10 @@ class _DatasetsScreenState extends ConsumerState<DatasetsScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.secondarySurface,
-        title: const Text('Delete recording?', style: TextStyle(color: AppTheme.ivory)),
+        title: const Text(
+          'Delete recording?',
+          style: TextStyle(color: AppTheme.ivory),
+        ),
         content: Text(
           '“$fileName” and its uploaded video will be permanently deleted. It will no longer be available in any dataset.',
           style: const TextStyle(color: AppTheme.ivory),
@@ -133,11 +136,17 @@ class _DatasetsScreenState extends ConsumerState<DatasetsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel', style: TextStyle(color: AppTheme.ivory)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: AppTheme.ivory),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Delete', style: TextStyle(color: AppTheme.warning)),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppTheme.warning),
+            ),
           ),
         ],
       ),
@@ -148,7 +157,9 @@ class _DatasetsScreenState extends ConsumerState<DatasetsScreen> {
       await ApiClient().deleteRecording(recordingId);
       if (!mounted) return;
       setState(() {
-        _recordings.removeWhere((item) => item['id']?.toString() == recordingId);
+        _recordings.removeWhere(
+          (item) => item['id']?.toString() == recordingId,
+        );
         _selectedRecordings.remove(recordingId);
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -157,7 +168,11 @@ class _DatasetsScreenState extends ConsumerState<DatasetsScreen> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not delete recording: ${describeApiError(error)}')),
+        SnackBar(
+          content: Text(
+            'Could not delete recording: ${describeApiError(error)}',
+          ),
+        ),
       );
     }
   }
@@ -316,6 +331,14 @@ class _DatasetsScreenState extends ConsumerState<DatasetsScreen> {
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        'Cloud-hosted recordings only',
+                                        style: TextStyle(
+                                          color: AppTheme.mutedText,
+                                          fontSize: 12,
+                                        ),
+                                      ),
                                       const SizedBox(width: 16),
                                       if (_selectedRecordings.isNotEmpty)
                                         Row(
@@ -385,34 +408,50 @@ class _DatasetsScreenState extends ConsumerState<DatasetsScreen> {
                                           Expanded(
                                             child: CheckboxListTile(
                                               title: Text(
-                                                recording['file_name'] ?? 'Unknown',
-                                                style: const TextStyle(color: AppTheme.ivory),
+                                                recording['file_name'] ??
+                                                    'Unknown',
+                                                style: const TextStyle(
+                                                  color: AppTheme.ivory,
+                                                ),
                                               ),
                                               subtitle: Text(
                                                 '${captureFormatLabel(recording['capture_format']?.toString())} • ${recording['validation_status']} • ${_hasUploadedVideo(recording) ? 'Video ready' : 'Video unavailable'}',
-                                                style: const TextStyle(color: AppTheme.mutedText),
+                                                style: const TextStyle(
+                                                  color: AppTheme.mutedText,
+                                                ),
                                               ),
                                               value: isSelected,
-                                              onChanged: !_hasUploadedVideo(recording)
+                                              onChanged:
+                                                  !_hasUploadedVideo(recording)
                                                   ? null
                                                   : (bool? value) {
                                                       setState(() {
-                                                        final id = recording['id'].toString();
+                                                        final id =
+                                                            recording['id']
+                                                                .toString();
                                                         if (value == true) {
-                                                          _selectedRecordings.add(id);
+                                                          _selectedRecordings
+                                                              .add(id);
                                                         } else {
-                                                          _selectedRecordings.remove(id);
+                                                          _selectedRecordings
+                                                              .remove(id);
                                                         }
                                                       });
                                                     },
                                               activeColor: AppTheme.gold,
-                                              checkColor: AppTheme.primaryBackground,
+                                              checkColor:
+                                                  AppTheme.primaryBackground,
                                             ),
                                           ),
                                           IconButton(
-                                            tooltip: 'Delete recording and video',
-                                            onPressed: () => _deleteRecording(recording),
-                                            icon: const Icon(Icons.delete_outline, color: AppTheme.warning),
+                                            tooltip:
+                                                'Delete recording and video',
+                                            onPressed: () =>
+                                                _deleteRecording(recording),
+                                            icon: const Icon(
+                                              Icons.delete_outline,
+                                              color: AppTheme.warning,
+                                            ),
                                           ),
                                         ],
                                       );
@@ -492,7 +531,9 @@ class _DatasetsScreenState extends ConsumerState<DatasetsScreen> {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Failed to create dataset: ${describeApiError(e)}'),
+                  content: Text(
+                    'Failed to create dataset: ${describeApiError(e)}',
+                  ),
                   duration: const Duration(seconds: 6),
                 ),
               );
@@ -513,17 +554,17 @@ class _DatasetsScreenState extends ConsumerState<DatasetsScreen> {
   void _downloadDataset(String datasetId, String name, String version) async {
     try {
       final apiClient = ref.read(apiClientProvider);
-      await apiClient.downloadDataset(
+      final saved = await apiClient.downloadDataset(
         datasetId,
-        fileName: '${name}_${version}'.replaceAll(
+        fileName: '${name}_$version'.replaceAll(
           RegExp(r'[^A-Za-z0-9._-]'),
           '_',
         ),
       );
-      if (mounted) {
+      if (mounted && saved) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Dataset $name $version downloaded'),
+            content: Text('Dataset $name $version saved'),
             backgroundColor: AppTheme.success,
           ),
         );

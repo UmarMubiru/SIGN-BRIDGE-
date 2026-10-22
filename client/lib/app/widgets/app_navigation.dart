@@ -27,46 +27,21 @@ class _DesktopNavigation extends StatelessWidget {
       color: AppTheme.secondarySurface,
       child: Column(
         children: [
-          // Logo
-          Container(
-            padding: const EdgeInsets.all(24),
-            child: Row(
-              children: [
-                Image.asset(
-                  'assets/images/signbridge_mark.png',
-                  width: 40,
-                  height: 40,
-                  errorBuilder: (context, error, stackTrace) {
-                    // Fallback to placeholder if image not found
-                    return Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [AppTheme.gold, AppTheme.teal],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.accessibility_new,
-                        size: 24,
-                        color: AppTheme.primaryBackground,
-                      ),
-                    );
-                  },
+          // Use the full brand mark on its own so it reads clearly in the sidebar.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: SizedBox(
+              width: 210,
+              height: 105,
+              child: Image.asset(
+                'assets/images/signbridge_logo.png',
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const Icon(
+                  Icons.accessibility_new,
+                  size: 88,
+                  color: AppTheme.teal,
                 ),
-                const SizedBox(width: 12),
-                const Text(
-                  'SignBridge',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.ivory,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
           const Divider(color: AppTheme.primaryBackground),
@@ -76,19 +51,14 @@ class _DesktopNavigation extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
                 _NavItem(
-                  icon: Icons.folder_copy_outlined,
-                  label: 'Workspace',
-                  route: '/workspace',
+                  icon: Icons.dashboard,
+                  label: 'Dashboard',
+                  route: '/dashboard',
                 ),
                 _NavItem(
                   icon: Icons.videocam,
                   label: 'New recording',
-                  route: '/recording/new',
-                ),
-                _NavItem(
-                  icon: Icons.dashboard,
-                  label: 'Dashboard',
-                  route: '/dashboard',
+                  route: '/sessions/create',
                 ),
                 _NavItem(
                   icon: Icons.people,
@@ -189,19 +159,14 @@ class _MobileNavigation extends StatelessWidget {
           ),
           // Navigation items
           _NavItem(
-            icon: Icons.folder_copy_outlined,
-            label: 'Workspace',
-            route: '/workspace',
+            icon: Icons.dashboard,
+            label: 'Dashboard',
+            route: '/dashboard',
           ),
           _NavItem(
             icon: Icons.videocam,
             label: 'New recording',
-            route: '/recording/new',
-          ),
-          _NavItem(
-            icon: Icons.dashboard,
-            label: 'Dashboard',
-            route: '/dashboard',
+            route: '/sessions/create',
           ),
           _NavItem(icon: Icons.people, label: 'Signers', route: '/signers'),
           _NavItem(

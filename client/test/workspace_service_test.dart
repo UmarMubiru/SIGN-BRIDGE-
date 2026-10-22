@@ -144,4 +144,48 @@ void main() {
       throwsA(isA<WorkspaceException>()),
     );
   });
+
+  test(
+    'rejects an incomplete workspace copy without changing the active one',
+    () async {
+      final imported = await service.createWorkspace(
+        parentPath: workspaceParent.path,
+        name: 'Incomplete copy',
+      );
+      final active = await service.createWorkspace(
+        parentPath: workspaceParent.path,
+        name: 'Keep active',
+      );
+      final database = await WorkspaceDatabase.open(
+        '${imported.rootPath}/database.sqlite3',
+      );
+      try {
+        await database.insert('collection_sessions', {
+          'id': 'restore-session',
+          'session_type': 'conversation',
+          'created_at': '2026-10-16T00:00:00Z',
+          'updated_at': '2026-10-16T00:00:00Z',
+        });
+        await database.insert('recordings', {
+          'id': 'restore-recording',
+          'session_id': 'restore-session',
+          'recording_type': 'conversation',
+          'relative_video_path': 'videos/restore-recording/original.mp4',
+          'file_name': 'original.mp4',
+          'mime_type': 'video/mp4',
+          'file_size_bytes': 1,
+          'created_at': '2026-10-16T00:00:00Z',
+          'updated_at': '2026-10-16T00:00:00Z',
+        });
+      } finally {
+        await database.close();
+      }
+
+      await expectLater(
+        service.validateWorkspaceForImport(imported.rootPath),
+        throwsA(isA<WorkspaceException>()),
+      );
+      expect((await service.loadActiveWorkspace())?.id, active.id);
+    },
+  );
 }
